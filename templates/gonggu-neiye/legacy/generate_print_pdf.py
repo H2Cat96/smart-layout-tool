@@ -82,6 +82,22 @@ def apply_style_rule(style: dict[str, Any], layout_rules: dict[str, Any], rule_n
     return style
 
 
+def is_reading_prompt(text: str) -> bool:
+    return text.startswith("阅读") and ("小题" in text or "下列小题" in text or "回答" in text)
+
+
+def is_article_title_text(text: str) -> bool:
+    if not text or len(text) > 12:
+        return False
+    if text.startswith(("【", "（", "(", "“", "《")):
+        return False
+    if re.match(r"^[A-E][.．]", text):
+        return False
+    if re.match(r"^[1-9]\d*[.．、]", text):
+        return False
+    return not re.search(r"[，。！？；：、,.!?;:]", text)
+
+
 def clean_text(text: str) -> str:
     return re.sub(r"[\r\n\t]+", " ", text).strip()
 
@@ -491,7 +507,7 @@ def paragraph_style(
             "title_marker": True,
             "title_marker_asset": "参考答案" if is_answer else "标题角标",
         }, layout_rules, "main_title")
-    if not is_answer and pos == 2 and text.startswith("阅读"):
+    if not is_answer and is_reading_prompt(text):
         return apply_style_rule({
             "kind": "reading_prompt",
             "font": yan_mid,
@@ -504,19 +520,6 @@ def paragraph_style(
             "first_line_indent": 0,
             "bar": False,
         }, layout_rules, "reading_prompt")
-    if not is_answer and pos == 3:
-        return apply_style_rule({
-            "kind": "article_title",
-            "font": yan_mid,
-            "size": 14,
-            "leading": 24,
-            "align": "center",
-            "color": config_color(layout_rules, "body_text", "#222222"),
-            "space_before": 0,
-            "space_after": 4,
-            "first_line_indent": 0,
-            "bar": False,
-        }, layout_rules, "article_title")
     if text == "贾平凹":
         return apply_style_rule({
             "kind": "author",
@@ -530,6 +533,19 @@ def paragraph_style(
             "first_line_indent": 0,
             "bar": False,
         }, layout_rules, "author")
+    if not is_answer and (pos == 3 or is_article_title_text(text)):
+        return apply_style_rule({
+            "kind": "article_title",
+            "font": yan_mid,
+            "size": 14,
+            "leading": 24,
+            "align": "center",
+            "color": config_color(layout_rules, "body_text", "#222222"),
+            "space_before": 0,
+            "space_after": 4,
+            "first_line_indent": 0,
+            "bar": False,
+        }, layout_rules, "article_title")
     if is_answer and text in {"【答案】", "【解析】", "答案：", "答案:", "解析：", "解析:"}:
         return apply_style_rule({
             "kind": "answer_label",
@@ -611,7 +627,7 @@ def paragraph_style(
             "size": 12,
             "leading": 20,
             "align": "left",
-            "color": config_color(layout_rules, "source_text", "#bf8030"),
+            "color": config_color(layout_rules, "source_text", "#898989"),
             "space_before": 4,
             "space_after": 5,
             "first_line_indent": 0,
@@ -713,6 +729,11 @@ def fit_lines(
     return fit, "".join(rest)
 
 
+def line_x_offset(style: dict[str, Any], first_line: bool) -> float:
+    indent = style.get("first_line_indent", 0) if first_line else 0
+    return style.get("left_indent", 0) + indent
+
+
 def draw_paragraph_lines(
     c: canvas.Canvas,
     lines: list[str],
@@ -743,15 +764,14 @@ def draw_paragraph_lines(
     text_offset = 0
     for line_index, line in enumerate(lines):
         cursor += style["leading"]
-        indent = style.get("first_line_indent", 0) if first_line else 0
-        left_indent = style.get("left_indent", 0)
-        available_w = w - 16 - left_indent - indent
+        x_offset = line_x_offset(style, first_line)
+        available_w = w - 16 - x_offset
         if style["align"] == "center":
             tx = x + w / 2 - text_width(line, style["font"], style["size"]) / 2
         elif style["align"] == "right":
             tx = x + w - 8 - text_width(line, style["font"], style["size"])
         else:
-            tx = x + 8 + left_indent + indent
+            tx = x + 8 + x_offset
         if first_line and style.get("title_marker"):
             # Align the 30.05 pt corner SVG with the main title's visual center.
             draw_title_corner_svg(c, x + 1, cursor - 22, svg_assets, style.get("title_marker_asset", "标题角标"))
@@ -917,13 +937,18 @@ def paint_template_shell(
     page_h: float,
     footer_font: str,
     background_mode: str,
+    layout_rules: dict[str, Any],
     page_number_start: int | None = None,
 ) -> None:
     for slot in spread["slots"]:
         b = slot["bbox_pt"]
         x, y, w, h = b["x"], b["y"], b["w"], b["h"]
         if slot["role"] in ("side_strip", "side_strip_textframe"):
-            fill = slot.get("fill_rgb") or ("#ffd9ed" if spread["spread_index"] < 4 else "#cccccc")
+            fill = (
+                config_color(layout_rules, "practice_bar", "#fce5e4")
+                if spread["spread_index"] < 4
+                else config_color(layout_rules, "answer_gray", "#898989")
+            )
             c.setFillColor(color_from_hex(fill, (.94, .86, .89)))
             c.rect(x, page_h - y - h, w, h, fill=1, stroke=0)
         elif slot["role"] == "page_number":
@@ -982,6 +1007,7 @@ def render_flow(
             page_h,
             style_fonts["footer"],
             background_mode,
+            layout_rules,
             page_number_start=page_number_start + len(rendered_pages) * 2,
         )
         page_started_at = paragraph_idx

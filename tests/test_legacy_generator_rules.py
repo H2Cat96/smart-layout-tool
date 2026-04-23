@@ -58,30 +58,58 @@ class LegacyGeneratorRulesTests(unittest.TestCase):
         }
 
         article_title = generator.paragraph_style("泉", 3, False, fonts, {})
+        second_article_title = generator.paragraph_style("一匹骆驼", 39, False, fonts, {})
+        second_reading_prompt = generator.paragraph_style("阅读《一匹骆驼》，完成下面的小题。", 38, False, fonts, {})
         author = generator.paragraph_style("贾平凹", 4, False, fonts, {})
         source = generator.paragraph_style("（2011-2012北京顺义九上期末）", 15, False, fonts, {})
         answer_label = generator.paragraph_style("【答案】", 2, True, fonts, {})
         answer_section = generator.paragraph_style("【练习二】", 1, True, fonts, {})
 
         self.assertEqual(article_title["font"], "TitleMid")
+        self.assertEqual(second_article_title["kind"], "article_title")
+        self.assertEqual(second_article_title["font"], "TitleMid")
+        self.assertEqual(second_reading_prompt["kind"], "reading_prompt")
         self.assertEqual(author["font"], "Body")
         self.assertEqual(author["size"], 14)
         self.assertEqual(source["align"], "left")
+        self.assertEqual(source["color"], "#898989")
         self.assertEqual(answer_label["kind"], "answer_label")
         self.assertFalse(answer_label["bar"])
         self.assertNotIn("bold_rule", answer_label)
         self.assertEqual(answer_section["kind"], "section")
         self.assertTrue(answer_section["bar"])
 
-    def test_template_shell_draws_side_strips_on_white_background(self):
+    def test_question_wrapping_aligns_content_with_title(self):
+        generator = load_generator()
+        style = {
+            "font": "Helvetica",
+            "size": 10,
+            "leading": 12,
+            "left_indent": 28,
+            "first_line_indent": 0,
+        }
+
+        lines = generator.wrap_text_by_widths(
+            "请从人物描写的角度，赏析下列句子的表达效果。",
+            style,
+            [30, 30],
+        )
+
+        self.assertGreater(len(lines), 1)
+        self.assertEqual(generator.line_x_offset(style, first_line=True), 28)
+        self.assertEqual(generator.line_x_offset(style, first_line=False), 28)
+
+    def test_template_shell_draws_side_strips_on_white_background_with_section_color(self):
         generator = load_generator()
 
         class FakeCanvas:
             def __init__(self):
                 self.rects = []
+                self.colors = []
 
             def setFillColor(self, color):
                 self.color = color
+                self.colors.append((round(color.red, 6), round(color.green, 6), round(color.blue, 6)))
 
             def rect(self, x, y, w, h, fill, stroke):
                 self.rects.append((x, y, w, h, fill, stroke))
@@ -103,10 +131,12 @@ class LegacyGeneratorRulesTests(unittest.TestCase):
                 }
             ],
         }
+        rules = {"colors": {"practice_bar": "#fce5e4"}}
 
-        generator.paint_template_shell(canvas, spread, 200, 100, "Footer", "white", page_number_start=1)
+        generator.paint_template_shell(canvas, spread, 200, 100, "Footer", "white", rules, page_number_start=1)
 
         self.assertEqual(canvas.rects, [(0, 0, 20, 100, 1, 0)])
+        self.assertEqual(canvas.colors[0], (0.988235, 0.898039, 0.894118))
 
     def test_paragraph_style_uses_layout_rule_overrides(self):
         generator = load_generator()
