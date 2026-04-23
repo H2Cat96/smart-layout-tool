@@ -60,3 +60,21 @@ class CliAdapterTests(unittest.TestCase):
             main(["inspect-template", "--template", "示例模板", "--templates-dir", "/tmp/templates"])
 
             inspector.assert_called_once_with("示例模板", templates_dir=Path("/tmp/templates"))
+
+    def test_build_command_defaults_to_single_page_mode(self):
+        with patch("teaching_layout.cli.build_with_legacy_generator") as builder:
+            builder.return_value = {"outputs": {"pdf": "/tmp/out.pdf"}}
+
+            main(
+                [
+                    "build",
+                    "--template",
+                    "人文-课后巩固",
+                    "--docx",
+                    "/tmp/input.docx",
+                    "--out",
+                    "/tmp/out",
+                ]
+            )
+
+            self.assertEqual(builder.call_args.kwargs["page_mode"], "single")

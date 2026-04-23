@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Generate a print-oriented double-spread teaching-aid PDF from:
+Generate a print-oriented teaching-aid PDF from:
   - template.json extracted from IDML
   - font-map.json
   - a source DOCX
@@ -1187,6 +1187,29 @@ def validate_pdf(pdf_path: Path, expected_w: float, expected_h: float) -> dict[s
     return {"pages": len(reader.pages), "sizes": sizes}
 
 
+def split_spread_pdf_to_single_pages(
+    spread_pdf_path: Path,
+    output_pdf_path: Path,
+    single_page_w: float,
+    single_page_h: float,
+) -> None:
+    source = fitz.open(str(spread_pdf_path))
+    target = fitz.open()
+    for page in source:
+        for offset in (0, single_page_w):
+            target_page = target.new_page(width=single_page_w, height=single_page_h)
+            clip = fitz.Rect(offset, 0, offset + single_page_w, single_page_h)
+            target_page.show_pdf_page(
+                fitz.Rect(0, 0, single_page_w, single_page_h),
+                source,
+                page.number,
+                clip=clip,
+            )
+    target.save(str(output_pdf_path))
+    target.close()
+    source.close()
+
+
 def build_pdf(args: argparse.Namespace) -> dict[str, Any]:
     template_path = Path(args.template)
     font_map_path = Path(args.font_map)
@@ -1204,21 +1227,27 @@ def build_pdf(args: argparse.Namespace) -> dict[str, Any]:
     _, substitutions = register_fonts(font_map, font_map_path.parent)
     svg_assets = load_svg_assets(svg_dir, asset_map)
 
-    page_w = template["document"]["page_width_pt"] * 2
+    single_page_w = template["document"]["page_width_pt"]
+    spread_page_w = single_page_w * 2
     page_h = template["document"]["page_height_pt"]
+    page_mode = getattr(args, "page_mode", "single")
+    if page_mode not in {"single", "spread"}:
+        raise ValueError(f"Unsupported page mode: {page_mode}")
+    output_page_w = single_page_w if page_mode == "single" else spread_page_w
     style_fonts = font_map["style_defaults"]
     page_flow_rules = layout_rules.get("page_flow", {})
     dynamic_page_numbers = page_flow_rules.get("dynamic_page_numbers", True)
 
-    background_records = ensure_backgrounds(template, background_dir, page_w, page_h, args.background_dpi)
+    background_records = ensure_backgrounds(template, background_dir, spread_page_w, page_h, args.background_dpi)
     prompts_path = write_background_prompt_manifest(output_dir, template)
 
     paragraphs = load_docx_paragraphs(docx_path)
     practice, answers = split_practice_and_answers(paragraphs)
 
     pdf_path = output_dir / args.pdf_name
+    spread_pdf_path = output_dir / f".{pdf_path.stem}.spread-work.pdf" if page_mode == "single" else pdf_path
     preview_path = output_dir / args.preview_name
-    c = canvas.Canvas(str(pdf_path), pagesize=(page_w, page_h))
+    c = canvas.Canvas(str(spread_pdf_path), pagesize=(spread_page_w, page_h))
     c.setTitle(args.title)
     practice_result = render_flow(
         c,
@@ -1226,7 +1255,7 @@ def build_pdf(args: argparse.Namespace) -> dict[str, Any]:
         practice,
         story_frames(template, "practice_content_flow"),
         background_dir,
-        page_w,
+        spread_page_w,
         page_h,
         style_fonts,
         is_answer=False,
@@ -1243,7 +1272,7 @@ def build_pdf(args: argparse.Namespace) -> dict[str, Any]:
         answers,
         story_frames(template, "answer_content_flow"),
         background_dir,
-        page_w,
+        spread_page_w,
         page_h,
         style_fonts,
         is_answer=True,
@@ -1254,9 +1283,12 @@ def build_pdf(args: argparse.Namespace) -> dict[str, Any]:
         allow_repeat=page_flow_rules.get("repeat_last_answer_spread_when_overflow", True),
     )
     c.save()
+    if page_mode == "single":
+        split_spread_pdf_to_single_pages(spread_pdf_path, pdf_path, single_page_w, page_h)
+        spread_pdf_path.unlink(missing_ok=True)
 
     render_preview(pdf_path, preview_path)
-    pdf_validation = validate_pdf(pdf_path, page_w, page_h)
+    pdf_validation = validate_pdf(pdf_path, output_page_w, page_h)
 
     manifest = {
         "schema_version": "0.1",
@@ -1269,13 +1301,16 @@ def build_pdf(args: argparse.Namespace) -> dict[str, Any]:
             "svg_dir": str(svg_dir),
             "layout_rules": str(args.layout_rules) if getattr(args, "layout_rules", None) else None,
             "asset_map": str(args.asset_map) if getattr(args, "asset_map", None) else None,
+            "page_mode": page_mode,
         },
         "outputs": {
             "pdf": str(pdf_path),
             "preview": str(preview_path),
             "background_prompts": str(prompts_path),
         },
-        "page_size_pt": {"w": round(page_w, 3), "h": round(page_h, 3)},
+        "page_mode": page_mode,
+        "page_size_pt": {"w": round(output_page_w, 3), "h": round(page_h, 3)},
+        "spread_page_size_pt": {"w": round(spread_page_w, 3), "h": round(page_h, 3)},
         "backgrounds": background_records,
         "font_substitutions": substitutions,
         "svg_assets": svg_assets,
@@ -1306,6 +1341,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--pdf-name", default="贾平凹标题含义_正式流程版.pdf")
     parser.add_argument("--preview-name", default="贾平凹标题含义_正式流程版_预览.png")
     parser.add_argument("--title", default="贾平凹标题含义理解")
+    parser.add_argument("--page-mode", choices=["single", "spread"], default="single")
     parser.add_argument("--layout-rules", default=None)
     parser.add_argument("--asset-map", default=None)
     return parser.parse_args()

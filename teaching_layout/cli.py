@@ -20,6 +20,7 @@ def build_command(args: argparse.Namespace) -> None:
         preview_name=args.preview_name,
         title=args.title,
         background_mode=args.background_mode,
+        page_mode=args.page_mode,
         templates_dir=Path(args.templates_dir),
     )
     print(json.dumps(manifest["outputs"], ensure_ascii=False, indent=2))
@@ -64,6 +65,12 @@ def create_parser() -> argparse.ArgumentParser:
     build.add_argument("--preview-name", default="preview.png", help="Output preview PNG file name")
     build.add_argument("--title", default="teaching-layout-output", help="PDF metadata title")
     build.add_argument("--background-mode", choices=["white", "image"], default="white")
+    build.add_argument(
+        "--page-mode",
+        choices=["single", "spread"],
+        default="single",
+        help="Output PDF page mode. single uses IDML page size; spread keeps double-page spreads.",
+    )
     build.set_defaults(func=build_command)
 
     parse_docx = subparsers.add_parser("parse-docx", help="Summarize structured DOCX content.")

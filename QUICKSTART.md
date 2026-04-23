@@ -32,6 +32,12 @@ python3 -m teaching_layout build \
 
 生成结果会包含 PDF、预览图和 `generation-manifest.json`。
 
+默认输出是 IDML 单页尺寸 PDF。需要保留旧的横向对页输出时，在 `build` 命令里加：
+
+```bash
+--page-mode spread
+```
+
 ## 4. 校验 PDF
 
 ```bash

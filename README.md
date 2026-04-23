@@ -33,6 +33,8 @@ python3 -m teaching_layout validate \
   --manifest "/path/to/output-folder/generation-manifest.json"
 ```
 
+`build` 默认输出 IDML 单页尺寸 PDF。需要保留旧的横向对页调试输出时，加 `--page-mode spread`。
+
 分享前可以检查模板包：
 
 ```bash
@@ -84,7 +86,7 @@ python3 -m teaching_layout parse-docx \
 
 当前“人文-课后巩固”模板包的校验目标：
 
-- PDF 页数：3 个双页展开
+- PDF 页数：默认按 IDML 单页输出；旧对页模式可用 `--page-mode spread` 保留
 - 练习段落：32/32
 - 答案段落：13/13
 - Word 答题横线：6 条可识别

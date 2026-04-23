@@ -3,6 +3,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from pypdf import PdfReader
+from reportlab.pdfgen import canvas
 from docx import Document
 
 
@@ -58,6 +60,28 @@ class LegacyGeneratorRulesTests(unittest.TestCase):
             resolved = generator.resolve_font_path("../assets/fonts/Body.ttf", font_map_dir)
 
             self.assertEqual(resolved, font_path.resolve())
+
+    def test_split_spread_pdf_outputs_idml_single_page_size(self):
+        generator = load_generator()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            spread_pdf = root / "spread.pdf"
+            single_pdf = root / "single.pdf"
+            c = canvas.Canvas(str(spread_pdf), pagesize=(200, 100))
+            c.drawString(10, 50, "left")
+            c.drawString(110, 50, "right")
+            c.showPage()
+            c.drawString(10, 50, "left2")
+            c.drawString(110, 50, "right2")
+            c.save()
+
+            generator.split_spread_pdf_to_single_pages(spread_pdf, single_pdf, 100, 100)
+
+            reader = PdfReader(str(single_pdf))
+            self.assertEqual(len(reader.pages), 4)
+            for page in reader.pages:
+                self.assertEqual(round(float(page.mediabox.width), 3), 100)
+                self.assertEqual(round(float(page.mediabox.height), 3), 100)
 
     def test_gonggu_specific_style_fixes(self):
         generator = load_generator()
