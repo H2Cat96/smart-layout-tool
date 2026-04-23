@@ -63,6 +63,8 @@ class LegacyGeneratorRulesTests(unittest.TestCase):
         author = generator.paragraph_style("贾平凹", 4, False, fonts, {})
         source = generator.paragraph_style("（2011-2012北京顺义九上期末）", 15, False, fonts, {})
         answer_label = generator.paragraph_style("【答案】", 2, True, fonts, {})
+        plain_answer_label = generator.paragraph_style("答案：", 2, True, fonts, {})
+        plain_analysis_label = generator.paragraph_style("解析:", 2, True, fonts, {})
         answer_section = generator.paragraph_style("【练习二】", 1, True, fonts, {})
 
         self.assertEqual(article_title["font"], "TitleMid")
@@ -76,6 +78,8 @@ class LegacyGeneratorRulesTests(unittest.TestCase):
         self.assertEqual(answer_label["kind"], "answer_label")
         self.assertFalse(answer_label["bar"])
         self.assertNotIn("bold_rule", answer_label)
+        self.assertEqual(plain_answer_label["display_text"], "【答案】")
+        self.assertEqual(plain_analysis_label["display_text"], "【解析】")
         self.assertEqual(answer_section["kind"], "section")
         self.assertTrue(answer_section["bar"])
 

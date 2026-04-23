@@ -149,6 +149,14 @@ def is_article_title_text(text: str) -> bool:
     return not re.search(r"[，。！？；：、,.!?;:]", text)
 
 
+def normalize_answer_label(text: str) -> str | None:
+    if text in {"【答案】", "答案：", "答案:"}:
+        return "【答案】"
+    if text in {"【解析】", "解析：", "解析:"}:
+        return "【解析】"
+    return None
+
+
 def clean_text(text: str) -> str:
     return re.sub(r"[\r\n\t]+", " ", text).strip()
 
@@ -605,7 +613,8 @@ def paragraph_style(
             "first_line_indent": 0,
             "bar": False,
         }, layout_rules, "article_title")
-    if is_answer and text in {"【答案】", "【解析】", "答案：", "答案:", "解析：", "解析:"}:
+    answer_label_text = normalize_answer_label(text) if is_answer else None
+    if answer_label_text:
         return apply_style_rule({
             "kind": "answer_label",
             "font": yan_mid,
@@ -617,6 +626,7 @@ def paragraph_style(
             "space_after": 2,
             "first_line_indent": 0,
             "bar": False,
+            "display_text": answer_label_text,
         }, layout_rules, "answer_label")
     if text.startswith("【") and text.endswith("】"):
         return apply_style_rule({
