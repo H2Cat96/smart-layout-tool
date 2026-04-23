@@ -1,54 +1,54 @@
 {
   "schema_version": "0.1",
-  "source_folder": "/Users/tal/Desktop/模板材料/Document fonts",
+  "source_folder": "../assets/fonts",
   "fonts": {
     "FZKTK--GBK1-0": {
-      "path": "/Users/tal/Desktop/模板材料/Document fonts/FZKTK.TTF",
+      "path": "../assets/fonts/FZKTK.TTF",
       "reportlab_name": "FZKaiGBK",
       "status": "exact"
     },
     "RjPinyin": {
-      "path": "/Users/tal/Desktop/模板材料/Document fonts/RJPINYIN.TTF",
+      "path": "../assets/fonts/RJPINYIN.TTF",
       "reportlab_name": "RjPinyin",
       "status": "exact"
     },
     "FZYANS_ZHUNJW--GB1-0": {
-      "path": "/Users/tal/Desktop/模板材料/Document fonts/FZYanSJW_Zhun.TTF",
+      "path": "../assets/fonts/FZYanSJW_Zhun.TTF",
       "reportlab_name": "FZYanSongZhun",
       "status": "exact"
     },
     "FZYANS_ZHONGJW--GB1-0": {
-      "path": "/Users/tal/Desktop/模板材料/Document fonts/FZYanSJW_Zhong.TTF",
+      "path": "../assets/fonts/FZYanSJW_Zhong.TTF",
       "reportlab_name": "FZYanSongZhong",
       "status": "exact"
     },
     "FZYANS_CUJW--GB1-0": {
-      "path": "/Users/tal/Desktop/模板材料/Document fonts/FZYanSJW_Cu.TTF",
+      "path": "../assets/fonts/FZYanSJW_Cu.TTF",
       "reportlab_name": "FZYanSongCu",
       "status": "exact"
     },
     "AlibabaPuHuiTiH": {
-      "path": "/Users/tal/Desktop/模板材料/Document fonts/Alibaba-PuHuiTi-Heavy.ttf",
+      "path": "../assets/fonts/Alibaba-PuHuiTi-Heavy.ttf",
       "reportlab_name": "AlibabaPuHuiTiH",
       "status": "exact"
     },
     "AlibabaPuHuiTiL": {
-      "path": "/Users/tal/Desktop/模板材料/Document fonts/Alibaba-PuHuiTi-Light.ttf",
+      "path": "../assets/fonts/Alibaba-PuHuiTi-Light.ttf",
       "reportlab_name": "AlibabaPuHuiTiL",
       "status": "exact"
     },
     "AlibabaPuHuiTiM": {
-      "path": "/Users/tal/Desktop/模板材料/Document fonts/Alibaba-PuHuiTi-Medium.ttf",
+      "path": "../assets/fonts/Alibaba-PuHuiTi-Medium.ttf",
       "reportlab_name": "AlibabaPuHuiTiM",
       "status": "exact"
     },
     "AlibabaPuHuiTiR": {
-      "path": "/Users/tal/Desktop/模板材料/Document fonts/Alibaba-PuHuiTi-Regular.ttf",
+      "path": "../assets/fonts/Alibaba-PuHuiTi-Regular.ttf",
       "reportlab_name": "AlibabaPuHuiTiR",
       "status": "exact"
     },
     "AlibabaPuHuiTiB": {
-      "path": "/Users/tal/Desktop/模板材料/Document fonts/Alibaba-PuHuiTi-Bold.ttf",
+      "path": "../assets/fonts/Alibaba-PuHuiTi-Bold.ttf",
       "reportlab_name": "AlibabaPuHuiTiB",
       "status": "exact"
     }
@@ -64,7 +64,7 @@
     "title_bold": "FZYanSongCu"
   },
   "notes": [
-    "All paths are absolute so the PDF generation pipeline can be run without relying on system-installed fonts.",
+    "Font paths are relative to this font-map.json file so the template package can be shared.",
     "Style defaults include title_mid/title_bold slots mapped to 方正颜宋简体_中 and 方正颜宋简体_粗."
   ]
 }

@@ -33,12 +33,12 @@ from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.pdfgen import canvas
 
 
-BASE = Path("/Users/tal/Desktop/模板材料")
-DEFAULT_TEMPLATE = BASE / "模板抽取输出" / "template.json"
-DEFAULT_FONT_MAP = BASE / "模板抽取输出" / "font-map.json"
-DEFAULT_DOCX = BASE / "【改1】贾平凹短篇：标题含义理解-课后题.docx"
-DEFAULT_OUTPUT_DIR = BASE / "正式生成输出"
-DEFAULT_SVG_DIR = BASE / "Document fonts" / "SVG"
+PACKAGE_ROOT = Path(__file__).resolve().parents[1]
+DEFAULT_TEMPLATE = PACKAGE_ROOT / "extracted" / "template.json"
+DEFAULT_FONT_MAP = PACKAGE_ROOT / "extracted" / "font-map.json"
+DEFAULT_DOCX = PACKAGE_ROOT / "samples" / "input.docx"
+DEFAULT_OUTPUT_DIR = PACKAGE_ROOT / "outputs"
+DEFAULT_SVG_DIR = PACKAGE_ROOT / "assets" / "svg"
 ANSWER_LINE_SENTINEL = "\uE000_ANSWER_LINE"
 FORBIDDEN_LINE_START = set("，。！？；：、,.!?;:)]}）】》〉」』”’％‰℃…")
 FORBIDDEN_LINE_END = set("([{（【《〈「『“‘")
@@ -248,7 +248,14 @@ def ensure_dir(path: Path) -> None:
     path.mkdir(parents=True, exist_ok=True)
 
 
-def register_fonts(font_map: dict[str, Any]) -> tuple[set[str], list[dict[str, str]]]:
+def resolve_font_path(value: str, base_dir: Path | None = None) -> Path:
+    font_path = Path(value).expanduser()
+    if font_path.is_absolute() or base_dir is None:
+        return font_path
+    return (base_dir / font_path).resolve()
+
+
+def register_fonts(font_map: dict[str, Any], base_dir: Path | None = None) -> tuple[set[str], list[dict[str, str]]]:
     registered: set[str] = set()
     substitutions: list[dict[str, str]] = []
     for source_font, item in font_map["fonts"].items():
@@ -264,7 +271,7 @@ def register_fonts(font_map: dict[str, Any]) -> tuple[set[str], list[dict[str, s
             )
         if reportlab_name in registered:
             continue
-        font_path = Path(item["path"])
+        font_path = resolve_font_path(item["path"], base_dir)
         if not font_path.exists():
             raise FileNotFoundError(f"Font file missing: {font_path}")
         pdfmetrics.registerFont(TTFont(reportlab_name, str(font_path)))
@@ -1194,7 +1201,7 @@ def build_pdf(args: argparse.Namespace) -> dict[str, Any]:
     font_map = json.loads(font_map_path.read_text(encoding="utf-8"))
     layout_rules = load_optional_json(getattr(args, "layout_rules", None))
     asset_map = load_optional_json(getattr(args, "asset_map", None))
-    _, substitutions = register_fonts(font_map)
+    _, substitutions = register_fonts(font_map, font_map_path.parent)
     svg_assets = load_svg_assets(svg_dir, asset_map)
 
     page_w = template["document"]["page_width_pt"] * 2

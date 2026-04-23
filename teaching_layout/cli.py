@@ -6,6 +6,7 @@ from pathlib import Path
 
 from .docx_parser import summarize_docx
 from .legacy_adapter import build_with_legacy_generator
+from .template_inspector import inspect_template
 from .template_importer import import_template
 from .validator import validate_pdf
 
@@ -42,6 +43,11 @@ def import_template_command(args: argparse.Namespace) -> None:
         templates_dir=Path(args.templates_dir),
         overwrite=args.overwrite,
     )
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+
+
+def inspect_template_command(args: argparse.Namespace) -> None:
+    result = inspect_template(args.template, templates_dir=Path(args.templates_dir))
     print(json.dumps(result, ensure_ascii=False, indent=2))
 
 
@@ -87,6 +93,18 @@ def create_parser() -> argparse.ArgumentParser:
         help="Overwrite an existing template package with the same id",
     )
     import_template_parser.set_defaults(func=import_template_command)
+
+    inspect_template_parser = subparsers.add_parser(
+        "inspect-template",
+        help="Inspect a template package for missing files and local absolute paths.",
+    )
+    inspect_template_parser.add_argument("--template", required=True, help="Template name, id, or package path")
+    inspect_template_parser.add_argument(
+        "--templates-dir",
+        default=str(Path(__file__).resolve().parents[1] / "templates"),
+        help="Templates directory",
+    )
+    inspect_template_parser.set_defaults(func=inspect_template_command)
 
     return parser
 

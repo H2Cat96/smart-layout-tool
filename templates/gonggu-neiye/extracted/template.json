@@ -1,8 +1,8 @@
 {
   "schema_version": "0.1",
   "source": {
-    "idml": "/Users/tal/Desktop/模板材料/巩固内页排版样式.idml",
-    "pdf": "/Users/tal/Desktop/模板材料/巩固内页排版样式.pdf"
+    "idml": "../assets/references/巩固内页排版样式.idml",
+    "pdf": "../assets/references/巩固内页排版样式.pdf"
   },
   "units": "pt",
   "document": {

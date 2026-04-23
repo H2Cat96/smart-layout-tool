@@ -47,3 +47,16 @@ class CliAdapterTests(unittest.TestCase):
                 templates_dir=Path("/tmp/templates"),
                 overwrite=False,
             )
+
+    def test_inspect_template_command_calls_inspector(self):
+        with patch("teaching_layout.cli.inspect_template") as inspector:
+            inspector.return_value = {
+                "template": "示例模板",
+                "status": "portable",
+                "missing": [],
+                "absolute_paths": [],
+            }
+
+            main(["inspect-template", "--template", "示例模板", "--templates-dir", "/tmp/templates"])
+
+            inspector.assert_called_once_with("示例模板", templates_dir=Path("/tmp/templates"))

@@ -46,6 +46,19 @@ class LegacyGeneratorRulesTests(unittest.TestCase):
             self.assertEqual(blocks[1]["type"], "table")
             self.assertEqual(blocks[1]["rows"], [["事件", "作者感情"], ["听到消息", "伤感"]])
 
+    def test_font_paths_can_be_relative_to_font_map_directory(self):
+        generator = load_generator()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            font_map_dir = root / "extracted"
+            font_path = root / "assets" / "fonts" / "Body.ttf"
+            font_path.parent.mkdir(parents=True)
+            font_path.write_bytes(b"font")
+
+            resolved = generator.resolve_font_path("../assets/fonts/Body.ttf", font_map_dir)
+
+            self.assertEqual(resolved, font_path.resolve())
+
     def test_gonggu_specific_style_fixes(self):
         generator = load_generator()
         fonts = {
