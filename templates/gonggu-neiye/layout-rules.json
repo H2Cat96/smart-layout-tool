@@ -31,6 +31,9 @@
       "leading": 27,
       "align": "justify-last-left"
     },
+    "question_content": {
+      "left_indent": 28
+    },
     "option": {
       "font": "FZKaiGBK",
       "size": 14,

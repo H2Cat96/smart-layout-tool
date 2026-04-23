@@ -82,6 +82,57 @@ def apply_style_rule(style: dict[str, Any], layout_rules: dict[str, Any], rule_n
     return style
 
 
+def question_content_indent(layout_rules: dict[str, Any], fallback: float = 28) -> float:
+    rule = layout_rules.get("styles", {}).get("question_content", {})
+    stem_rule = layout_rules.get("styles", {}).get("question_stem", {})
+    return rule.get("left_indent", stem_rule.get("left_indent", fallback))
+
+
+def starts_new_question_context(style: dict[str, Any]) -> bool:
+    return style.get("kind") in {"question_numbered", "option"}
+
+
+def ends_question_context(style: dict[str, Any]) -> bool:
+    return style.get("kind") in {
+        "main_title",
+        "reading_prompt",
+        "article_title",
+        "author",
+        "section",
+        "source",
+        "answer_label",
+    }
+
+
+def can_inherit_question_context(style: dict[str, Any]) -> bool:
+    return style.get("kind") in {"body", "answer_line", "option", "question_numbered"}
+
+
+def apply_question_content_indent(
+    style: dict[str, Any],
+    inherited_indent: float | None,
+    layout_rules: dict[str, Any],
+) -> dict[str, Any]:
+    if inherited_indent is None or not can_inherit_question_context(style):
+        return style
+    next_style = dict(style)
+    next_style["left_indent"] = question_content_indent(layout_rules, inherited_indent)
+    if next_style.get("kind") in {"body", "answer_line"}:
+        next_style["first_line_indent"] = 0
+    return next_style
+
+
+def make_remainder_block(rest: str, style: dict[str, Any]) -> dict[str, Any]:
+    next_style = dict(style)
+    next_style.pop("badge_text", None)
+    next_style["display_text"] = rest
+    return {
+        "type": "remainder",
+        "text": rest,
+        "style": next_style,
+    }
+
+
 def is_reading_prompt(text: str) -> bool:
     return text.startswith("阅读") and ("小题" in text or "下列小题" in text or "回答" in text)
 
@@ -131,6 +182,14 @@ def block_text(block: Any) -> str:
     if isinstance(block, dict):
         return block.get("text", "")
     return str(block)
+
+
+def is_remainder_block(block: Any) -> bool:
+    return isinstance(block, dict) and block.get("type") == "remainder"
+
+
+def remainder_style(block: dict[str, Any]) -> dict[str, Any]:
+    return dict(block.get("style", {}))
 
 
 def is_table_block(block: Any) -> bool:
@@ -755,7 +814,8 @@ def draw_paragraph_lines(
         c.setStrokeColor(HexColor("#222222"))
         c.setLineWidth(0.45)
         y = c._pagesize[1] - cursor + 3
-        c.line(x + 8, y, x + w - 8, y)
+        x_offset = line_x_offset(style, first_line=True)
+        c.line(x + 8 + x_offset, y, x + w - 8, y)
         cursor += style["space_after"]
         return cursor
     c.setFont(style["font"], style["size"])
@@ -882,8 +942,9 @@ def draw_table_block(
     start_cursor: float,
 ) -> float:
     rows = table_rows(block)
-    x = frame["x"] + 8
-    w = frame["w"] - 16
+    left_indent = style.get("left_indent", 0)
+    x = frame["x"] + 8 + left_indent
+    w = frame["w"] - 16 - left_indent
     cursor = start_cursor + style["space_before"]
     y_top_pdf = c._pagesize[1] - cursor
     col_count = max((len(row) for row in rows), default=1)
@@ -984,6 +1045,7 @@ def render_flow(
     remainder: Any | None = None
     rendered_pages: list[dict[str, Any]] = []
     spread_slot = 0
+    inherited_question_indent: float | None = None
     while paragraph_idx < len(paragraphs) or remainder is not None:
         if not frame_entries:
             break
@@ -1019,8 +1081,11 @@ def render_flow(
                 text = remainder if remainder is not None else paragraphs[paragraph_idx]
                 if is_table_block(text):
                     style = table_style(style_fonts, layout_rules)
+                    if inherited_question_indent is not None:
+                        style = dict(style)
+                        style["left_indent"] = question_content_indent(layout_rules, inherited_question_indent)
                     rows = table_rows(text)
-                    table_h = table_total_height(rows, style, frame["w"] - 16)
+                    table_h = table_total_height(rows, style, frame["w"] - 16 - style.get("left_indent", 0))
                     y_bottom = frame["y"] + frame["h"] - 6
                     if cursor + table_h > y_bottom:
                         remainder = text
@@ -1029,14 +1094,22 @@ def render_flow(
                     remainder = None
                     paragraph_idx += 1
                     continue
-                style = paragraph_style(text, paragraph_idx, is_answer, style_fonts, layout_rules)
+                if is_remainder_block(text):
+                    style = remainder_style(text)
+                else:
+                    style = paragraph_style(text, paragraph_idx, is_answer, style_fonts, layout_rules)
+                    if not is_answer and ends_question_context(style):
+                        inherited_question_indent = None
+                    style = apply_question_content_indent(style, inherited_question_indent, layout_rules)
+                if not is_answer and starts_new_question_context(style):
+                    inherited_question_indent = style.get("left_indent", question_content_indent(layout_rules))
                 lines, rest = fit_lines(text, style, frame, cursor)
                 if not lines and rest:
                     remainder = text
                     break
                 cursor = draw_paragraph_lines(c, lines, style, frame, cursor, svg_assets, has_rest=bool(rest))
                 if rest:
-                    remainder = rest
+                    remainder = make_remainder_block(rest, style)
                     break
                 remainder = None
                 paragraph_idx += 1

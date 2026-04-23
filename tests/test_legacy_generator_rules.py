@@ -99,6 +99,38 @@ class LegacyGeneratorRulesTests(unittest.TestCase):
         self.assertEqual(generator.line_x_offset(style, first_line=True), 28)
         self.assertEqual(generator.line_x_offset(style, first_line=False), 28)
 
+    def test_question_context_indents_following_blocks_and_remainders(self):
+        generator = load_generator()
+        rules = {"styles": {"question_content": {"left_indent": 28}}}
+        base_style = {
+            "kind": "body",
+            "font": "Helvetica",
+            "size": 10,
+            "leading": 12,
+            "first_line_indent": 18,
+        }
+        answer_line = {"kind": "answer_line", "font": "Helvetica", "size": 10, "leading": 12}
+        question_style = {
+            "kind": "question_numbered",
+            "font": "Helvetica",
+            "size": 10,
+            "leading": 12,
+            "left_indent": 28,
+            "badge_text": "2",
+            "display_text": "题干内容",
+        }
+
+        inherited = generator.apply_question_content_indent(base_style, 28, rules)
+        inherited_line = generator.apply_question_content_indent(answer_line, 28, rules)
+        remainder = generator.make_remainder_block("跨页续排文字", question_style)
+
+        self.assertEqual(inherited["left_indent"], 28)
+        self.assertEqual(inherited["first_line_indent"], 0)
+        self.assertEqual(inherited_line["left_indent"], 28)
+        self.assertEqual(remainder["style"]["left_indent"], 28)
+        self.assertEqual(remainder["style"]["display_text"], "跨页续排文字")
+        self.assertNotIn("badge_text", remainder["style"])
+
     def test_template_shell_draws_side_strips_on_white_background_with_section_color(self):
         generator = load_generator()
 
