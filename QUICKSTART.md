@@ -40,6 +40,30 @@ python3 -m teaching_layout validate \
   --manifest "/path/to/output-folder/generation-manifest.json"
 ```
 
+## Claude/Codex 用户
+
+如果同时收到了 `teaching-layout-skill.zip`，先安装 Skill：
+
+```bash
+# Codex
+mkdir -p ~/.codex/skills
+unzip teaching-layout-skill.zip -d ~/.codex/skills
+
+# Claude Code
+mkdir -p ~/.claude/skills
+unzip teaching-layout-skill.zip -d ~/.claude/skills
+```
+
+然后用 Claude/Codex 打开这个 `teaching-layout-cli` 文件夹，并发送：
+
+```text
+请使用 teaching-layout skill，先检查“人文-课后巩固”模板是否 portable，
+然后把我的 DOCX 排成印刷 PDF，生成后运行 validate。
+
+DOCX 路径：/path/to/input.docx
+输出目录：/path/to/output-folder
+```
+
 ## 分享注意
 
 - 当前模板包随带字体，方便内部流转。对外分发前请确认字体和参考材料授权。
