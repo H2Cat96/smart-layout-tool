@@ -1,0 +1,27 @@
+{
+  "schema_version": "0.1",
+  "description": "当前巩固内页模板的 SVG 资源映射。",
+  "assets": {
+    "practice_title_corner": {
+      "file": "标题角标.svg",
+      "role": "main_title_corner",
+      "color": "#c1020e"
+    },
+    "answer_title_corner": {
+      "file": "参考答案.svg",
+      "role": "answer_title_corner",
+      "color": "#898989"
+    },
+    "section_bar": {
+      "file": "标题.svg",
+      "role": "section_title_background",
+      "practice_color": "#fce5e4",
+      "answer_color": "#898989"
+    },
+    "question_badge": {
+      "file": "序号.svg",
+      "role": "question_number_badge",
+      "color": "#c1020e"
+    }
+  }
+}

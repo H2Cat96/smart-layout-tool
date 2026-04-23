@@ -1,0 +1,16 @@
+{
+  "id": "gonggu-neiye",
+  "name": "巩固内页横版双页教辅模板",
+  "engine": "legacy-generator",
+  "source_root": ".",
+  "paths": {
+    "generator": "legacy/generate_print_pdf.py",
+    "template_json": "extracted/template.json",
+    "font_map": "extracted/font-map.json",
+    "svg_dir": "assets/svg"
+  },
+  "package_paths": {
+    "layout_rules": "layout-rules.json",
+    "asset_map": "asset-map.json"
+  }
+}

@@ -1,0 +1,1479 @@
+{
+  "schema_version": "0.1",
+  "source": {
+    "idml": "/Users/tal/Desktop/模板材料/巩固内页排版样式.idml",
+    "pdf": "/Users/tal/Desktop/模板材料/巩固内页排版样式.pdf"
+  },
+  "units": "pt",
+  "document": {
+    "page_width_pt": 595.276,
+    "page_height_pt": 807.874,
+    "facing_pages": true,
+    "bleed_pt": {
+      "top": 8.503937007874017,
+      "bottom": 8.503937007874017,
+      "inside_or_left": 8.503937007874017,
+      "outside_or_right": 8.503937007874017,
+      "uniform": true
+    },
+    "pdf_page_sizes": [
+      {
+        "pdf_page": 1,
+        "w": 595.276,
+        "h": 807.874
+      },
+      {
+        "pdf_page": 2,
+        "w": 1190.55,
+        "h": 807.874
+      },
+      {
+        "pdf_page": 3,
+        "w": 1190.55,
+        "h": 807.874
+      },
+      {
+        "pdf_page": 4,
+        "w": 1190.55,
+        "h": 807.874
+      },
+      {
+        "pdf_page": 5,
+        "w": 1190.55,
+        "h": 807.874
+      }
+    ],
+    "coordinate_note": "bbox_pt uses final PDF/page coordinates: x/y from top-left of the rendered page or spread; double-spread width = 2 * page_width."
+  },
+  "spreads": [
+    {
+      "id": "u45d",
+      "src": "Spreads/Spread_u45d.xml",
+      "spread_index": 1,
+      "pdf_page": 1,
+      "page_count": 1,
+      "page_names": [
+        "1"
+      ],
+      "page_width_pt": 595.276,
+      "page_height_pt": 807.874,
+      "spread_width_pt": 595.276,
+      "spread_height_pt": 807.874,
+      "pages": [
+        {
+          "self": "u462",
+          "name": "1",
+          "item_transform": "1 0 0 1 0 -403.93700787401576",
+          "geometric_bounds": "0 0 807.8740157480315 595.2755905509999",
+          "margins": {
+            "ColumnCount": "1",
+            "ColumnGutter": "14.173228346456694",
+            "Top": "56.69291338582678",
+            "Bottom": "56.69291338582678",
+            "Left": "56.69291338582678",
+            "Right": "56.69291338582678",
+            "ColumnDirection": "Horizontal",
+            "ColumnsPositions": "0 481.88976377934637"
+          }
+        }
+      ],
+      "slots": []
+    },
+    {
+      "id": "u3695",
+      "src": "Spreads/Spread_u3695.xml",
+      "spread_index": 2,
+      "pdf_page": 2,
+      "page_count": 2,
+      "page_names": [
+        "2",
+        "3"
+      ],
+      "page_width_pt": 595.276,
+      "page_height_pt": 807.874,
+      "spread_width_pt": 1190.551,
+      "spread_height_pt": 807.874,
+      "pages": [
+        {
+          "self": "u369a",
+          "name": "2",
+          "item_transform": "1 0 0 1 -595.2755905509999 -403.93700787401576",
+          "geometric_bounds": "0 0 807.8740157480315 595.2755905509999",
+          "margins": {
+            "ColumnCount": "1",
+            "ColumnGutter": "14.173228346456694",
+            "Top": "56.69291338582678",
+            "Bottom": "56.69291338582678",
+            "Left": "56.69291338582678",
+            "Right": "56.69291338582678",
+            "ColumnDirection": "Horizontal",
+            "ColumnsPositions": "0 481.88976377934637"
+          }
+        },
+        {
+          "self": "u369b",
+          "name": "3",
+          "item_transform": "1 0 0 1 0 -403.93700787401576",
+          "geometric_bounds": "0 0 807.8740157480315 595.2755905509999",
+          "margins": {
+            "ColumnCount": "1",
+            "ColumnGutter": "14.173228346456694",
+            "Top": "56.69291338582678",
+            "Bottom": "56.69291338582678",
+            "Left": "56.69291338582678",
+            "Right": "56.69291338582678",
+            "ColumnDirection": "Horizontal",
+            "ColumnsPositions": "0 481.88976377934637"
+          }
+        }
+      ],
+      "slots": [
+        {
+          "id": "u3695_01",
+          "source_self": "u36a4",
+          "kind": "Rectangle",
+          "role": "side_strip",
+          "parent_story": null,
+          "previous_text_frame": null,
+          "next_text_frame": null,
+          "applied_object_style": "ObjectStyle/$ID/[Normal Graphics Frame]",
+          "fill_color": "Color/C=0 M=15 Y=7 K=0",
+          "fill_cmyk": {
+            "C": 0.0,
+            "M": 15.0,
+            "Y": 7.0,
+            "K": 0.0
+          },
+          "fill_rgb": "#ffd9ed",
+          "stroke_weight": "0",
+          "bbox_pt": {
+            "x": -0.0,
+            "y": -0.0,
+            "w": 22.677,
+            "h": 807.874,
+            "x_pct": -0.0,
+            "y_pct": -0.0,
+            "w_pct": 0.019048,
+            "h_pct": 1.0
+          }
+        },
+        {
+          "id": "u3695_02",
+          "source_self": "u36e8",
+          "kind": "Rectangle",
+          "role": "side_strip",
+          "parent_story": null,
+          "previous_text_frame": null,
+          "next_text_frame": null,
+          "applied_object_style": "ObjectStyle/$ID/[Normal Graphics Frame]",
+          "fill_color": "Color/C=0 M=15 Y=7 K=0",
+          "fill_cmyk": {
+            "C": 0.0,
+            "M": 15.0,
+            "Y": 7.0,
+            "K": 0.0
+          },
+          "fill_rgb": "#ffd9ed",
+          "stroke_weight": "0",
+          "bbox_pt": {
+            "x": 1167.874,
+            "y": -0.0,
+            "w": 22.677,
+            "h": 807.874,
+            "x_pct": 0.980952,
+            "y_pct": -0.0,
+            "w_pct": 0.019048,
+            "h_pct": 1.0
+          }
+        },
+        {
+          "id": "u3695_03",
+          "source_self": "u3710",
+          "kind": "TextFrame",
+          "role": "content_flow_frame",
+          "parent_story": "u3713",
+          "previous_text_frame": "n",
+          "next_text_frame": "u372d",
+          "applied_object_style": "ObjectStyle/$ID/[None]",
+          "fill_color": null,
+          "fill_cmyk": null,
+          "fill_rgb": null,
+          "stroke_weight": "0.2834645669291339",
+          "bbox_pt": {
+            "x": 56.693,
+            "y": 56.693,
+            "w": 481.89,
+            "h": 694.488,
+            "x_pct": 0.047619,
+            "y_pct": 0.070175,
+            "w_pct": 0.404762,
+            "h_pct": 0.859649
+          },
+          "text_frame_preference": {
+            "TextColumnCount": "1",
+            "TextColumnFixedWidth": "481.8897637793465",
+            "TextColumnMaxWidth": "0",
+            "ColumnRuleStrokeColor": "Color/C=0 M=100 Y=100 K=20"
+          },
+          "story_preview": "  贾平凹短篇：标题含义理解阅读散文《泉》，回答下列小题。泉贾平凹①我老家的门前，有棵老槐树，在一个风雨夜里，被雷电击折了。家里传来消息说：“它死得很惨，被拦腰折断，又裂为四块，什么也不能做，劈成木柴了。”我听了，很是伤感。②打我记事起，这",
+          "story_text_length": 2287
+        },
+        {
+          "id": "u3695_04",
+          "source_self": "u372d",
+          "kind": "TextFrame",
+          "role": "content_flow_frame",
+          "parent_story": "u3713",
+          "previous_text_frame": "u3710",
+          "next_text_frame": "u3925",
+          "applied_object_style": "ObjectStyle/$ID/[Normal Text Frame]",
+          "fill_color": null,
+          "fill_cmyk": null,
+          "fill_rgb": null,
+          "stroke_weight": null,
+          "bbox_pt": {
+            "x": 651.969,
+            "y": 56.693,
+            "w": 481.89,
+            "h": 694.488,
+            "x_pct": 0.547619,
+            "y_pct": 0.070175,
+            "w_pct": 0.404762,
+            "h_pct": 0.859649
+          },
+          "text_frame_preference": {
+            "TextColumnCount": "1",
+            "TextColumnFixedWidth": "481.8897637793463",
+            "TextColumnMaxWidth": "0",
+            "ColumnRuleStrokeColor": "Color/B-绿-文言文"
+          },
+          "story_preview": "  贾平凹短篇：标题含义理解阅读散文《泉》，回答下列小题。泉贾平凹①我老家的门前，有棵老槐树，在一个风雨夜里，被雷电击折了。家里传来消息说：“它死得很惨，被拦腰折断，又裂为四块，什么也不能做，劈成木柴了。”我听了，很是伤感。②打我记事起，这",
+          "story_text_length": 2287
+        },
+        {
+          "id": "u3695_05",
+          "source_self": "u3a60",
+          "kind": "TextFrame",
+          "role": "page_number",
+          "parent_story": "u3a4e",
+          "previous_text_frame": "n",
+          "next_text_frame": "n",
+          "applied_object_style": "ObjectStyle/$ID/[Normal Text Frame]",
+          "fill_color": null,
+          "fill_cmyk": null,
+          "fill_rgb": null,
+          "stroke_weight": null,
+          "bbox_pt": {
+            "x": 56.693,
+            "y": 762.52,
+            "w": 481.89,
+            "h": 22.677,
+            "x_pct": 0.047619,
+            "y_pct": 0.94386,
+            "w_pct": 0.404762,
+            "h_pct": 0.02807
+          },
+          "text_frame_preference": {
+            "TextColumnCount": "1",
+            "TextColumnFixedWidth": "481.8897637793464",
+            "TextColumnMaxWidth": "0",
+            "ColumnRuleStrokeColor": "Color/B-绿-文言文"
+          },
+          "story_preview": "·1·",
+          "story_text_length": 3
+        },
+        {
+          "id": "u3695_06",
+          "source_self": "u3a64",
+          "kind": "TextFrame",
+          "role": "page_number",
+          "parent_story": "u3a67",
+          "previous_text_frame": "n",
+          "next_text_frame": "n",
+          "applied_object_style": "ObjectStyle/$ID/[Normal Text Frame]",
+          "fill_color": null,
+          "fill_cmyk": null,
+          "fill_rgb": null,
+          "stroke_weight": null,
+          "bbox_pt": {
+            "x": 651.969,
+            "y": 762.52,
+            "w": 481.89,
+            "h": 22.677,
+            "x_pct": 0.547619,
+            "y_pct": 0.94386,
+            "w_pct": 0.404762,
+            "h_pct": 0.02807
+          },
+          "text_frame_preference": {
+            "TextColumnCount": "1",
+            "TextColumnFixedWidth": "481.8897637793464",
+            "TextColumnMaxWidth": "0",
+            "ColumnRuleStrokeColor": "Color/B-绿-文言文"
+          },
+          "story_preview": "·2·",
+          "story_text_length": 3
+        }
+      ]
+    },
+    {
+      "id": "u380d",
+      "src": "Spreads/Spread_u380d.xml",
+      "spread_index": 3,
+      "pdf_page": 3,
+      "page_count": 2,
+      "page_names": [
+        "4",
+        "5"
+      ],
+      "page_width_pt": 595.276,
+      "page_height_pt": 807.874,
+      "spread_width_pt": 1190.551,
+      "spread_height_pt": 807.874,
+      "pages": [
+        {
+          "self": "u3812",
+          "name": "4",
+          "item_transform": "1 0 0 1 -595.2755905509999 -403.93700787401576",
+          "geometric_bounds": "0 0 807.8740157480315 595.2755905509999",
+          "margins": {
+            "ColumnCount": "1",
+            "ColumnGutter": "14.173228346456694",
+            "Top": "56.69291338582678",
+            "Bottom": "56.69291338582678",
+            "Left": "56.69291338582678",
+            "Right": "56.69291338582678",
+            "ColumnDirection": "Horizontal",
+            "ColumnsPositions": "0 481.88976377934637"
+          }
+        },
+        {
+          "self": "u3813",
+          "name": "5",
+          "item_transform": "1 0 0 1 0 -403.93700787401576",
+          "geometric_bounds": "0 0 807.8740157480315 595.2755905509999",
+          "margins": {
+            "ColumnCount": "1",
+            "ColumnGutter": "14.173228346456694",
+            "Top": "56.69291338582678",
+            "Bottom": "56.69291338582678",
+            "Left": "56.69291338582678",
+            "Right": "56.69291338582678",
+            "ColumnDirection": "Horizontal",
+            "ColumnsPositions": "0 481.88976377934637"
+          }
+        }
+      ],
+      "slots": [
+        {
+          "id": "u380d_01",
+          "source_self": "u39a7",
+          "kind": "TextFrame",
+          "role": "content_flow_frame",
+          "parent_story": "u3713",
+          "previous_text_frame": "u3925",
+          "next_text_frame": "n",
+          "applied_object_style": "ObjectStyle/$ID/[Normal Text Frame]",
+          "fill_color": null,
+          "fill_cmyk": null,
+          "fill_rgb": null,
+          "stroke_weight": null,
+          "bbox_pt": {
+            "x": 651.969,
+            "y": 56.693,
+            "w": 481.89,
+            "h": 694.488,
+            "x_pct": 0.547619,
+            "y_pct": 0.070175,
+            "w_pct": 0.404762,
+            "h_pct": 0.859649
+          },
+          "text_frame_preference": {
+            "TextColumnCount": "1",
+            "TextColumnFixedWidth": "481.8897637793463",
+            "TextColumnMaxWidth": "0",
+            "ColumnRuleStrokeColor": "Color/B-绿-文言文"
+          },
+          "story_preview": "  贾平凹短篇：标题含义理解阅读散文《泉》，回答下列小题。泉贾平凹①我老家的门前，有棵老槐树，在一个风雨夜里，被雷电击折了。家里传来消息说：“它死得很惨，被拦腰折断，又裂为四块，什么也不能做，劈成木柴了。”我听了，很是伤感。②打我记事起，这",
+          "story_text_length": 2287
+        },
+        {
+          "id": "u380d_02",
+          "source_self": "u3880",
+          "kind": "Rectangle",
+          "role": "side_strip",
+          "parent_story": null,
+          "previous_text_frame": null,
+          "next_text_frame": null,
+          "applied_object_style": "ObjectStyle/$ID/[Normal Graphics Frame]",
+          "fill_color": "Color/C=0 M=15 Y=7 K=0",
+          "fill_cmyk": {
+            "C": 0.0,
+            "M": 15.0,
+            "Y": 7.0,
+            "K": 0.0
+          },
+          "fill_rgb": "#ffd9ed",
+          "stroke_weight": "0",
+          "bbox_pt": {
+            "x": -0.0,
+            "y": -0.0,
+            "w": 22.677,
+            "h": 807.874,
+            "x_pct": -0.0,
+            "y_pct": -0.0,
+            "w_pct": 0.019048,
+            "h_pct": 1.0
+          }
+        },
+        {
+          "id": "u380d_03",
+          "source_self": "u3882",
+          "kind": "Rectangle",
+          "role": "side_strip",
+          "parent_story": null,
+          "previous_text_frame": null,
+          "next_text_frame": null,
+          "applied_object_style": "ObjectStyle/$ID/[Normal Graphics Frame]",
+          "fill_color": "Color/C=0 M=15 Y=7 K=0",
+          "fill_cmyk": {
+            "C": 0.0,
+            "M": 15.0,
+            "Y": 7.0,
+            "K": 0.0
+          },
+          "fill_rgb": "#ffd9ed",
+          "stroke_weight": "0",
+          "bbox_pt": {
+            "x": 1167.874,
+            "y": -0.0,
+            "w": 22.677,
+            "h": 807.874,
+            "x_pct": 0.980952,
+            "y_pct": -0.0,
+            "w_pct": 0.019048,
+            "h_pct": 1.0
+          }
+        },
+        {
+          "id": "u380d_04",
+          "source_self": "u3925",
+          "kind": "TextFrame",
+          "role": "content_flow_frame",
+          "parent_story": "u3713",
+          "previous_text_frame": "u372d",
+          "next_text_frame": "u39a7",
+          "applied_object_style": "ObjectStyle/$ID/[Normal Text Frame]",
+          "fill_color": null,
+          "fill_cmyk": null,
+          "fill_rgb": null,
+          "stroke_weight": null,
+          "bbox_pt": {
+            "x": 56.693,
+            "y": 56.693,
+            "w": 481.89,
+            "h": 629.291,
+            "x_pct": 0.047619,
+            "y_pct": 0.070175,
+            "w_pct": 0.404762,
+            "h_pct": 0.778947
+          },
+          "text_frame_preference": {
+            "TextColumnCount": "1",
+            "TextColumnFixedWidth": "481.88976377934637",
+            "TextColumnMaxWidth": "0",
+            "ColumnRuleStrokeColor": "Color/B-绿-文言文"
+          },
+          "story_preview": "  贾平凹短篇：标题含义理解阅读散文《泉》，回答下列小题。泉贾平凹①我老家的门前，有棵老槐树，在一个风雨夜里，被雷电击折了。家里传来消息说：“它死得很惨，被拦腰折断，又裂为四块，什么也不能做，劈成木柴了。”我听了，很是伤感。②打我记事起，这",
+          "story_text_length": 2287
+        },
+        {
+          "id": "u380d_05",
+          "source_self": "u3aaf",
+          "kind": "TextFrame",
+          "role": "page_number",
+          "parent_story": "u3ab2",
+          "previous_text_frame": "n",
+          "next_text_frame": "n",
+          "applied_object_style": "ObjectStyle/$ID/[Normal Text Frame]",
+          "fill_color": null,
+          "fill_cmyk": null,
+          "fill_rgb": null,
+          "stroke_weight": null,
+          "bbox_pt": {
+            "x": 56.693,
+            "y": 762.52,
+            "w": 481.89,
+            "h": 22.677,
+            "x_pct": 0.047619,
+            "y_pct": 0.94386,
+            "w_pct": 0.404762,
+            "h_pct": 0.02807
+          },
+          "text_frame_preference": {
+            "TextColumnCount": "1",
+            "TextColumnFixedWidth": "481.8897637793464",
+            "TextColumnMaxWidth": "0",
+            "ColumnRuleStrokeColor": "Color/B-绿-文言文"
+          },
+          "story_preview": "·3·",
+          "story_text_length": 3
+        },
+        {
+          "id": "u380d_06",
+          "source_self": "u3ac6",
+          "kind": "TextFrame",
+          "role": "page_number",
+          "parent_story": "u3ac9",
+          "previous_text_frame": "n",
+          "next_text_frame": "n",
+          "applied_object_style": "ObjectStyle/$ID/[Normal Text Frame]",
+          "fill_color": null,
+          "fill_cmyk": null,
+          "fill_rgb": null,
+          "stroke_weight": null,
+          "bbox_pt": {
+            "x": 651.969,
+            "y": 762.52,
+            "w": 481.89,
+            "h": 22.677,
+            "x_pct": 0.547619,
+            "y_pct": 0.94386,
+            "w_pct": 0.404762,
+            "h_pct": 0.02807
+          },
+          "text_frame_preference": {
+            "TextColumnCount": "1",
+            "TextColumnFixedWidth": "481.8897637793464",
+            "TextColumnMaxWidth": "0",
+            "ColumnRuleStrokeColor": "Color/B-绿-文言文"
+          },
+          "story_preview": "·4·",
+          "story_text_length": 3
+        }
+      ]
+    },
+    {
+      "id": "u3a1e",
+      "src": "Spreads/Spread_u3a1e.xml",
+      "spread_index": 4,
+      "pdf_page": 4,
+      "page_count": 2,
+      "page_names": [
+        "6",
+        "7"
+      ],
+      "page_width_pt": 595.276,
+      "page_height_pt": 807.874,
+      "spread_width_pt": 1190.551,
+      "spread_height_pt": 807.874,
+      "pages": [
+        {
+          "self": "u3a23",
+          "name": "6",
+          "item_transform": "1 0 0 1 -595.2755905509999 -403.93700787401576",
+          "geometric_bounds": "0 0 807.8740157480315 595.2755905509999",
+          "margins": {
+            "ColumnCount": "1",
+            "ColumnGutter": "14.173228346456694",
+            "Top": "56.69291338582678",
+            "Bottom": "56.69291338582678",
+            "Left": "56.69291338582678",
+            "Right": "56.69291338582678",
+            "ColumnDirection": "Horizontal",
+            "ColumnsPositions": "0 481.88976377934637"
+          }
+        },
+        {
+          "self": "u3a24",
+          "name": "7",
+          "item_transform": "1 0 0 1 0 -403.93700787401576",
+          "geometric_bounds": "0 0 807.8740157480315 595.2755905509999",
+          "margins": {
+            "ColumnCount": "1",
+            "ColumnGutter": "14.173228346456694",
+            "Top": "56.69291338582678",
+            "Bottom": "56.69291338582678",
+            "Left": "56.69291338582678",
+            "Right": "56.69291338582678",
+            "ColumnDirection": "Horizontal",
+            "ColumnsPositions": "0 481.88976377934637"
+          }
+        }
+      ],
+      "slots": [
+        {
+          "id": "u3a1e_01",
+          "source_self": "u3b02",
+          "kind": "TextFrame",
+          "role": "side_strip_textframe",
+          "parent_story": "u3bee",
+          "previous_text_frame": "n",
+          "next_text_frame": "n",
+          "applied_object_style": "ObjectStyle/$ID/[Normal Graphics Frame]",
+          "fill_color": "Color/C=0 M=0 Y=0 K=20",
+          "fill_cmyk": {
+            "C": 0.0,
+            "M": 0.0,
+            "Y": 0.0,
+            "K": 20.0
+          },
+          "fill_rgb": "#cccccc",
+          "stroke_weight": "0",
+          "bbox_pt": {
+            "x": -0.0,
+            "y": -0.0,
+            "w": 22.677,
+            "h": 807.874,
+            "x_pct": -0.0,
+            "y_pct": -0.0,
+            "w_pct": 0.019048,
+            "h_pct": 1.0
+          },
+          "text_frame_preference": {
+            "FootnotesEnableOverrides": "false",
+            "FootnotesSpanAcrossColumns": "false",
+            "FootnotesMinimumSpacing": "12",
+            "FootnotesSpaceBetween": "6",
+            "TextColumnCount": "1",
+            "TextColumnGutter": "14.173",
+            "TextColumnFixedWidth": "22.677165354330846",
+            "UseFixedColumnWidth": "false",
+            "FirstBaselineOffset": "EmboxHeight",
+            "MinimumFirstBaselineOffset": "0",
+            "VerticalJustification": "TopAlign",
+            "VerticalThreshold": "0",
+            "IgnoreWrap": "false",
+            "VerticalBalanceColumns": "false",
+            "UseFlexibleColumnWidth": "false",
+            "TextColumnMaxWidth": "0",
+            "AutoSizingType": "Off",
+            "AutoSizingReferencePoint": "CenterPoint",
+            "UseMinimumHeightForAutoSizing": "false",
+            "MinimumHeightForAutoSizing": "0",
+            "UseMinimumWidthForAutoSizing": "false",
+            "MinimumWidthForAutoSizing": "0",
+            "UseNoLineBreaksForAutoSizing": "false",
+            "ColumnRuleOverride": "false",
+            "ColumnRuleOffset": "0",
+            "ColumnRuleTopInset": "0",
+            "ColumnRuleInsetChainOverride": "true",
+            "ColumnRuleBottomInset": "0",
+            "ColumnRuleStrokeWidth": "1",
+            "ColumnRuleStrokeColor": "Color/B-绿-文言文",
+            "ColumnRuleStrokeType": "StrokeStyle/$ID/Solid",
+            "ColumnRuleStrokeTint": "100",
+            "ColumnRuleOverprintOverride": "false"
+          },
+          "story_preview": "",
+          "story_text_length": 0
+        },
+        {
+          "id": "u3a1e_02",
+          "source_self": "u3b03",
+          "kind": "TextFrame",
+          "role": "side_strip_textframe",
+          "parent_story": "u3bd6",
+          "previous_text_frame": "n",
+          "next_text_frame": "n",
+          "applied_object_style": "ObjectStyle/$ID/[Normal Graphics Frame]",
+          "fill_color": "Color/C=0 M=0 Y=0 K=20",
+          "fill_cmyk": {
+            "C": 0.0,
+            "M": 0.0,
+            "Y": 0.0,
+            "K": 20.0
+          },
+          "fill_rgb": "#cccccc",
+          "stroke_weight": "0",
+          "bbox_pt": {
+            "x": 1167.874,
+            "y": -0.0,
+            "w": 22.677,
+            "h": 807.874,
+            "x_pct": 0.980952,
+            "y_pct": -0.0,
+            "w_pct": 0.019048,
+            "h_pct": 1.0
+          },
+          "text_frame_preference": {
+            "FootnotesEnableOverrides": "false",
+            "FootnotesSpanAcrossColumns": "false",
+            "FootnotesMinimumSpacing": "12",
+            "FootnotesSpaceBetween": "6",
+            "TextColumnCount": "1",
+            "TextColumnGutter": "14.173",
+            "TextColumnFixedWidth": "22.677165354330846",
+            "UseFixedColumnWidth": "false",
+            "FirstBaselineOffset": "EmboxHeight",
+            "MinimumFirstBaselineOffset": "0",
+            "VerticalJustification": "TopAlign",
+            "VerticalThreshold": "0",
+            "IgnoreWrap": "false",
+            "VerticalBalanceColumns": "false",
+            "UseFlexibleColumnWidth": "false",
+            "TextColumnMaxWidth": "0",
+            "AutoSizingType": "Off",
+            "AutoSizingReferencePoint": "CenterPoint",
+            "UseMinimumHeightForAutoSizing": "false",
+            "MinimumHeightForAutoSizing": "0",
+            "UseMinimumWidthForAutoSizing": "false",
+            "MinimumWidthForAutoSizing": "0",
+            "UseNoLineBreaksForAutoSizing": "false",
+            "ColumnRuleOverride": "false",
+            "ColumnRuleOffset": "0",
+            "ColumnRuleTopInset": "0",
+            "ColumnRuleInsetChainOverride": "true",
+            "ColumnRuleBottomInset": "0",
+            "ColumnRuleStrokeWidth": "1",
+            "ColumnRuleStrokeColor": "Color/B-绿-文言文",
+            "ColumnRuleStrokeType": "StrokeStyle/$ID/Solid",
+            "ColumnRuleStrokeTint": "100",
+            "ColumnRuleOverprintOverride": "false"
+          },
+          "story_preview": "",
+          "story_text_length": 0
+        },
+        {
+          "id": "u3a1e_03",
+          "source_self": "u3b04",
+          "kind": "TextFrame",
+          "role": "content_flow_frame",
+          "parent_story": "u3b07",
+          "previous_text_frame": "n",
+          "next_text_frame": "u3b1b",
+          "applied_object_style": "ObjectStyle/$ID/[None]",
+          "fill_color": null,
+          "fill_cmyk": null,
+          "fill_rgb": null,
+          "stroke_weight": "0.2834645669291339",
+          "bbox_pt": {
+            "x": 56.693,
+            "y": 56.693,
+            "w": 481.89,
+            "h": 694.488,
+            "x_pct": 0.047619,
+            "y_pct": 0.070175,
+            "w_pct": 0.404762,
+            "h_pct": 0.859649
+          },
+          "text_frame_preference": {
+            "TextColumnCount": "1",
+            "TextColumnFixedWidth": "481.8897637793465",
+            "TextColumnMaxWidth": "0",
+            "ColumnRuleStrokeColor": "Color/C=0 M=100 Y=100 K=20"
+          },
+          "story_preview": "  参考答案与解析【答案】1.（1）伤感；（2）回乡看到老槐树被劈成碎片，只剩刺眼的树桩；（3）喜悦/激动/惊喜2. 运用比喻的修辞手法，将“鸟儿”比作“树叶”，将“树叶”比作“鸣叫的音符”，将“老槐树”比作“一首歌”，生动形象地描绘出冬月",
+          "story_text_length": 2011
+        },
+        {
+          "id": "u3a1e_04",
+          "source_self": "u3b1b",
+          "kind": "TextFrame",
+          "role": "content_flow_frame",
+          "parent_story": "u3b07",
+          "previous_text_frame": "u3b04",
+          "next_text_frame": "u3c24",
+          "applied_object_style": "ObjectStyle/$ID/[Normal Text Frame]",
+          "fill_color": null,
+          "fill_cmyk": null,
+          "fill_rgb": null,
+          "stroke_weight": null,
+          "bbox_pt": {
+            "x": 651.969,
+            "y": 56.693,
+            "w": 481.89,
+            "h": 694.488,
+            "x_pct": 0.547619,
+            "y_pct": 0.070175,
+            "w_pct": 0.404762,
+            "h_pct": 0.859649
+          },
+          "text_frame_preference": {
+            "TextColumnCount": "1",
+            "TextColumnFixedWidth": "481.8897637793463",
+            "TextColumnMaxWidth": "0",
+            "ColumnRuleStrokeColor": "Color/B-绿-文言文"
+          },
+          "story_preview": "  参考答案与解析【答案】1.（1）伤感；（2）回乡看到老槐树被劈成碎片，只剩刺眼的树桩；（3）喜悦/激动/惊喜2. 运用比喻的修辞手法，将“鸟儿”比作“树叶”，将“树叶”比作“鸣叫的音符”，将“老槐树”比作“一首歌”，生动形象地描绘出冬月",
+          "story_text_length": 2011
+        },
+        {
+          "id": "u3a1e_05",
+          "source_self": "u3b1f",
+          "kind": "TextFrame",
+          "role": "page_number",
+          "parent_story": "u3b22",
+          "previous_text_frame": "n",
+          "next_text_frame": "n",
+          "applied_object_style": "ObjectStyle/$ID/[Normal Text Frame]",
+          "fill_color": null,
+          "fill_cmyk": null,
+          "fill_rgb": null,
+          "stroke_weight": null,
+          "bbox_pt": {
+            "x": 56.693,
+            "y": 762.52,
+            "w": 481.89,
+            "h": 22.677,
+            "x_pct": 0.047619,
+            "y_pct": 0.94386,
+            "w_pct": 0.404762,
+            "h_pct": 0.02807
+          },
+          "text_frame_preference": {
+            "TextColumnCount": "1",
+            "TextColumnFixedWidth": "481.8897637793464",
+            "TextColumnMaxWidth": "0",
+            "ColumnRuleStrokeColor": "Color/B-绿-文言文"
+          },
+          "story_preview": "·5·",
+          "story_text_length": 3
+        },
+        {
+          "id": "u3a1e_06",
+          "source_self": "u3b36",
+          "kind": "TextFrame",
+          "role": "page_number",
+          "parent_story": "u3b3a",
+          "previous_text_frame": "n",
+          "next_text_frame": "n",
+          "applied_object_style": "ObjectStyle/$ID/[Normal Text Frame]",
+          "fill_color": null,
+          "fill_cmyk": null,
+          "fill_rgb": null,
+          "stroke_weight": null,
+          "bbox_pt": {
+            "x": 651.969,
+            "y": 762.52,
+            "w": 481.89,
+            "h": 22.677,
+            "x_pct": 0.547619,
+            "y_pct": 0.94386,
+            "w_pct": 0.404762,
+            "h_pct": 0.02807
+          },
+          "text_frame_preference": {
+            "TextColumnCount": "1",
+            "TextColumnFixedWidth": "481.8897637793464",
+            "TextColumnMaxWidth": "0",
+            "ColumnRuleStrokeColor": "Color/B-绿-文言文"
+          },
+          "story_preview": "·6·",
+          "story_text_length": 3
+        }
+      ]
+    },
+    {
+      "id": "u36a9",
+      "src": "Spreads/Spread_u36a9.xml",
+      "spread_index": 5,
+      "pdf_page": 5,
+      "page_count": 2,
+      "page_names": [
+        "8",
+        "9"
+      ],
+      "page_width_pt": 595.276,
+      "page_height_pt": 807.874,
+      "spread_width_pt": 1190.551,
+      "spread_height_pt": 807.874,
+      "pages": [
+        {
+          "self": "u36b4",
+          "name": "8",
+          "item_transform": "1 0 0 1 -595.2755905509999 -403.93700787401576",
+          "geometric_bounds": "0 0 807.8740157480315 595.2755905509999",
+          "margins": {
+            "ColumnCount": "1",
+            "ColumnGutter": "14.173228346456694",
+            "Top": "56.69291338582678",
+            "Bottom": "56.69291338582678",
+            "Left": "56.69291338582678",
+            "Right": "56.69291338582678",
+            "ColumnDirection": "Horizontal",
+            "ColumnsPositions": "0 481.88976377934637"
+          }
+        },
+        {
+          "self": "u36b5",
+          "name": "9",
+          "item_transform": "1 0 0 1 0 -403.93700787401576",
+          "geometric_bounds": "0 0 807.8740157480315 595.2755905509999",
+          "margins": {
+            "ColumnCount": "1",
+            "ColumnGutter": "14.173228346456694",
+            "Top": "56.69291338582678",
+            "Bottom": "56.69291338582678",
+            "Left": "56.69291338582678",
+            "Right": "56.69291338582678",
+            "ColumnDirection": "Horizontal",
+            "ColumnsPositions": "0 481.88976377934637"
+          }
+        }
+      ],
+      "slots": [
+        {
+          "id": "u36a9_01",
+          "source_self": "u3c24",
+          "kind": "TextFrame",
+          "role": "content_flow_frame",
+          "parent_story": "u3b07",
+          "previous_text_frame": "u3b1b",
+          "next_text_frame": "u3cb2",
+          "applied_object_style": "ObjectStyle/$ID/[Normal Text Frame]",
+          "fill_color": null,
+          "fill_cmyk": null,
+          "fill_rgb": null,
+          "stroke_weight": null,
+          "bbox_pt": {
+            "x": 56.693,
+            "y": 56.693,
+            "w": 481.89,
+            "h": 683.15,
+            "x_pct": 0.047619,
+            "y_pct": 0.070175,
+            "w_pct": 0.404762,
+            "h_pct": 0.845614
+          },
+          "text_frame_preference": {
+            "TextColumnCount": "1",
+            "TextColumnFixedWidth": "481.88976377934637",
+            "TextColumnMaxWidth": "0",
+            "ColumnRuleStrokeColor": "Color/B-绿-文言文"
+          },
+          "story_preview": "  参考答案与解析【答案】1.（1）伤感；（2）回乡看到老槐树被劈成碎片，只剩刺眼的树桩；（3）喜悦/激动/惊喜2. 运用比喻的修辞手法，将“鸟儿”比作“树叶”，将“树叶”比作“鸣叫的音符”，将“老槐树”比作“一首歌”，生动形象地描绘出冬月",
+          "story_text_length": 2011
+        },
+        {
+          "id": "u36a9_02",
+          "source_self": "u3c29",
+          "kind": "TextFrame",
+          "role": "side_strip_textframe",
+          "parent_story": "u3c2d",
+          "previous_text_frame": "n",
+          "next_text_frame": "n",
+          "applied_object_style": "ObjectStyle/$ID/[Normal Graphics Frame]",
+          "fill_color": "Color/C=0 M=0 Y=0 K=20",
+          "fill_cmyk": {
+            "C": 0.0,
+            "M": 0.0,
+            "Y": 0.0,
+            "K": 20.0
+          },
+          "fill_rgb": "#cccccc",
+          "stroke_weight": "0",
+          "bbox_pt": {
+            "x": -0.0,
+            "y": -0.0,
+            "w": 22.677,
+            "h": 807.874,
+            "x_pct": -0.0,
+            "y_pct": -0.0,
+            "w_pct": 0.019048,
+            "h_pct": 1.0
+          },
+          "text_frame_preference": {
+            "FootnotesEnableOverrides": "false",
+            "FootnotesSpanAcrossColumns": "false",
+            "FootnotesMinimumSpacing": "12",
+            "FootnotesSpaceBetween": "6",
+            "TextColumnCount": "1",
+            "TextColumnGutter": "14.173",
+            "TextColumnFixedWidth": "22.677165354330846",
+            "UseFixedColumnWidth": "false",
+            "FirstBaselineOffset": "EmboxHeight",
+            "MinimumFirstBaselineOffset": "0",
+            "VerticalJustification": "TopAlign",
+            "VerticalThreshold": "0",
+            "IgnoreWrap": "false",
+            "VerticalBalanceColumns": "false",
+            "UseFlexibleColumnWidth": "false",
+            "TextColumnMaxWidth": "0",
+            "AutoSizingType": "Off",
+            "AutoSizingReferencePoint": "CenterPoint",
+            "UseMinimumHeightForAutoSizing": "false",
+            "MinimumHeightForAutoSizing": "0",
+            "UseMinimumWidthForAutoSizing": "false",
+            "MinimumWidthForAutoSizing": "0",
+            "UseNoLineBreaksForAutoSizing": "false",
+            "ColumnRuleOverride": "false",
+            "ColumnRuleOffset": "0",
+            "ColumnRuleTopInset": "0",
+            "ColumnRuleInsetChainOverride": "true",
+            "ColumnRuleBottomInset": "0",
+            "ColumnRuleStrokeWidth": "1",
+            "ColumnRuleStrokeColor": "Color/B-绿-文言文",
+            "ColumnRuleStrokeType": "StrokeStyle/$ID/Solid",
+            "ColumnRuleStrokeTint": "100",
+            "ColumnRuleOverprintOverride": "false"
+          },
+          "story_preview": "",
+          "story_text_length": 0
+        },
+        {
+          "id": "u36a9_03",
+          "source_self": "u3c41",
+          "kind": "TextFrame",
+          "role": "side_strip_textframe",
+          "parent_story": "u3c44",
+          "previous_text_frame": "n",
+          "next_text_frame": "n",
+          "applied_object_style": "ObjectStyle/$ID/[Normal Graphics Frame]",
+          "fill_color": "Color/C=0 M=0 Y=0 K=20",
+          "fill_cmyk": {
+            "C": 0.0,
+            "M": 0.0,
+            "Y": 0.0,
+            "K": 20.0
+          },
+          "fill_rgb": "#cccccc",
+          "stroke_weight": "0",
+          "bbox_pt": {
+            "x": 1167.874,
+            "y": -0.0,
+            "w": 22.677,
+            "h": 807.874,
+            "x_pct": 0.980952,
+            "y_pct": -0.0,
+            "w_pct": 0.019048,
+            "h_pct": 1.0
+          },
+          "text_frame_preference": {
+            "FootnotesEnableOverrides": "false",
+            "FootnotesSpanAcrossColumns": "false",
+            "FootnotesMinimumSpacing": "12",
+            "FootnotesSpaceBetween": "6",
+            "TextColumnCount": "1",
+            "TextColumnGutter": "14.173",
+            "TextColumnFixedWidth": "22.677165354330846",
+            "UseFixedColumnWidth": "false",
+            "FirstBaselineOffset": "EmboxHeight",
+            "MinimumFirstBaselineOffset": "0",
+            "VerticalJustification": "TopAlign",
+            "VerticalThreshold": "0",
+            "IgnoreWrap": "false",
+            "VerticalBalanceColumns": "false",
+            "UseFlexibleColumnWidth": "false",
+            "TextColumnMaxWidth": "0",
+            "AutoSizingType": "Off",
+            "AutoSizingReferencePoint": "CenterPoint",
+            "UseMinimumHeightForAutoSizing": "false",
+            "MinimumHeightForAutoSizing": "0",
+            "UseMinimumWidthForAutoSizing": "false",
+            "MinimumWidthForAutoSizing": "0",
+            "UseNoLineBreaksForAutoSizing": "false",
+            "ColumnRuleOverride": "false",
+            "ColumnRuleOffset": "0",
+            "ColumnRuleTopInset": "0",
+            "ColumnRuleInsetChainOverride": "true",
+            "ColumnRuleBottomInset": "0",
+            "ColumnRuleStrokeWidth": "1",
+            "ColumnRuleStrokeColor": "Color/B-绿-文言文",
+            "ColumnRuleStrokeType": "StrokeStyle/$ID/Solid",
+            "ColumnRuleStrokeTint": "100",
+            "ColumnRuleOverprintOverride": "false"
+          },
+          "story_preview": "",
+          "story_text_length": 0
+        },
+        {
+          "id": "u36a9_04",
+          "source_self": "u3c62",
+          "kind": "TextFrame",
+          "role": "page_number",
+          "parent_story": "u3c65",
+          "previous_text_frame": "n",
+          "next_text_frame": "n",
+          "applied_object_style": "ObjectStyle/$ID/[Normal Text Frame]",
+          "fill_color": null,
+          "fill_cmyk": null,
+          "fill_rgb": null,
+          "stroke_weight": null,
+          "bbox_pt": {
+            "x": 56.693,
+            "y": 762.52,
+            "w": 481.89,
+            "h": 22.677,
+            "x_pct": 0.047619,
+            "y_pct": 0.94386,
+            "w_pct": 0.404762,
+            "h_pct": 0.02807
+          },
+          "text_frame_preference": {
+            "TextColumnCount": "1",
+            "TextColumnFixedWidth": "481.8897637793464",
+            "TextColumnMaxWidth": "0",
+            "ColumnRuleStrokeColor": "Color/B-绿-文言文"
+          },
+          "story_preview": "·7·",
+          "story_text_length": 3
+        },
+        {
+          "id": "u36a9_05",
+          "source_self": "u3c98",
+          "kind": "TextFrame",
+          "role": "page_number",
+          "parent_story": "u3c9b",
+          "previous_text_frame": "n",
+          "next_text_frame": "n",
+          "applied_object_style": "ObjectStyle/$ID/[Normal Text Frame]",
+          "fill_color": null,
+          "fill_cmyk": null,
+          "fill_rgb": null,
+          "stroke_weight": null,
+          "bbox_pt": {
+            "x": 651.969,
+            "y": 762.52,
+            "w": 481.89,
+            "h": 22.677,
+            "x_pct": 0.547619,
+            "y_pct": 0.94386,
+            "w_pct": 0.404762,
+            "h_pct": 0.02807
+          },
+          "text_frame_preference": {
+            "TextColumnCount": "1",
+            "TextColumnFixedWidth": "481.8897637793464",
+            "TextColumnMaxWidth": "0",
+            "ColumnRuleStrokeColor": "Color/B-绿-文言文"
+          },
+          "story_preview": "·8·",
+          "story_text_length": 3
+        },
+        {
+          "id": "u36a9_06",
+          "source_self": "u3cb2",
+          "kind": "TextFrame",
+          "role": "content_flow_frame",
+          "parent_story": "u3b07",
+          "previous_text_frame": "u3c24",
+          "next_text_frame": "n",
+          "applied_object_style": "ObjectStyle/$ID/[Normal Text Frame]",
+          "fill_color": null,
+          "fill_cmyk": null,
+          "fill_rgb": null,
+          "stroke_weight": null,
+          "bbox_pt": {
+            "x": 651.969,
+            "y": 56.693,
+            "w": 481.89,
+            "h": 188.504,
+            "x_pct": 0.547619,
+            "y_pct": 0.070175,
+            "w_pct": 0.404762,
+            "h_pct": 0.233333
+          },
+          "text_frame_preference": {
+            "TextColumnCount": "1",
+            "TextColumnFixedWidth": "481.8897637793463",
+            "TextColumnMaxWidth": "0",
+            "ColumnRuleStrokeColor": "Color/B-绿-文言文"
+          },
+          "story_preview": "  参考答案与解析【答案】1.（1）伤感；（2）回乡看到老槐树被劈成碎片，只剩刺眼的树桩；（3）喜悦/激动/惊喜2. 运用比喻的修辞手法，将“鸟儿”比作“树叶”，将“树叶”比作“鸣叫的音符”，将“老槐树”比作“一首歌”，生动形象地描绘出冬月",
+          "story_text_length": 2011
+        }
+      ]
+    }
+  ],
+  "flow_sequences": [
+    {
+      "story_id": "u3713",
+      "role": "practice_content_flow",
+      "story_text_length": 2287,
+      "frame_count": 4,
+      "frames": [
+        {
+          "source_self": "u3710",
+          "spread_id": "u3695",
+          "spread_index": 2,
+          "role": "content_flow_frame",
+          "bbox_pt": {
+            "x": 56.693,
+            "y": 56.693,
+            "w": 481.89,
+            "h": 694.488,
+            "x_pct": 0.047619,
+            "y_pct": 0.070175,
+            "w_pct": 0.404762,
+            "h_pct": 0.859649
+          }
+        },
+        {
+          "source_self": "u372d",
+          "spread_id": "u3695",
+          "spread_index": 2,
+          "role": "content_flow_frame",
+          "bbox_pt": {
+            "x": 651.969,
+            "y": 56.693,
+            "w": 481.89,
+            "h": 694.488,
+            "x_pct": 0.547619,
+            "y_pct": 0.070175,
+            "w_pct": 0.404762,
+            "h_pct": 0.859649
+          }
+        },
+        {
+          "source_self": "u3925",
+          "spread_id": "u380d",
+          "spread_index": 3,
+          "role": "content_flow_frame",
+          "bbox_pt": {
+            "x": 56.693,
+            "y": 56.693,
+            "w": 481.89,
+            "h": 629.291,
+            "x_pct": 0.047619,
+            "y_pct": 0.070175,
+            "w_pct": 0.404762,
+            "h_pct": 0.778947
+          }
+        },
+        {
+          "source_self": "u39a7",
+          "spread_id": "u380d",
+          "spread_index": 3,
+          "role": "content_flow_frame",
+          "bbox_pt": {
+            "x": 651.969,
+            "y": 56.693,
+            "w": 481.89,
+            "h": 694.488,
+            "x_pct": 0.547619,
+            "y_pct": 0.070175,
+            "w_pct": 0.404762,
+            "h_pct": 0.859649
+          }
+        }
+      ]
+    },
+    {
+      "story_id": "u3b07",
+      "role": "answer_content_flow",
+      "story_text_length": 2011,
+      "frame_count": 4,
+      "frames": [
+        {
+          "source_self": "u3b04",
+          "spread_id": "u3a1e",
+          "spread_index": 4,
+          "role": "content_flow_frame",
+          "bbox_pt": {
+            "x": 56.693,
+            "y": 56.693,
+            "w": 481.89,
+            "h": 694.488,
+            "x_pct": 0.047619,
+            "y_pct": 0.070175,
+            "w_pct": 0.404762,
+            "h_pct": 0.859649
+          }
+        },
+        {
+          "source_self": "u3b1b",
+          "spread_id": "u3a1e",
+          "spread_index": 4,
+          "role": "content_flow_frame",
+          "bbox_pt": {
+            "x": 651.969,
+            "y": 56.693,
+            "w": 481.89,
+            "h": 694.488,
+            "x_pct": 0.547619,
+            "y_pct": 0.070175,
+            "w_pct": 0.404762,
+            "h_pct": 0.859649
+          }
+        },
+        {
+          "source_self": "u3c24",
+          "spread_id": "u36a9",
+          "spread_index": 5,
+          "role": "content_flow_frame",
+          "bbox_pt": {
+            "x": 56.693,
+            "y": 56.693,
+            "w": 481.89,
+            "h": 683.15,
+            "x_pct": 0.047619,
+            "y_pct": 0.070175,
+            "w_pct": 0.404762,
+            "h_pct": 0.845614
+          }
+        },
+        {
+          "source_self": "u3cb2",
+          "spread_id": "u36a9",
+          "spread_index": 5,
+          "role": "content_flow_frame",
+          "bbox_pt": {
+            "x": 651.969,
+            "y": 56.693,
+            "w": 481.89,
+            "h": 188.504,
+            "x_pct": 0.547619,
+            "y_pct": 0.070175,
+            "w_pct": 0.404762,
+            "h_pct": 0.233333
+          }
+        }
+      ]
+    }
+  ],
+  "gpt_image2_background_contract": {
+    "mode": "background_only_no_text",
+    "canvas_for_double_spread_pt": {
+      "w": 1190.551,
+      "h": 807.874
+    },
+    "safe_text_frames": [
+      {
+        "story_id": "u3713",
+        "role": "practice_content_flow",
+        "frames": [
+          {
+            "source_self": "u3710",
+            "spread_id": "u3695",
+            "spread_index": 2,
+            "role": "content_flow_frame",
+            "bbox_pt": {
+              "x": 56.693,
+              "y": 56.693,
+              "w": 481.89,
+              "h": 694.488,
+              "x_pct": 0.047619,
+              "y_pct": 0.070175,
+              "w_pct": 0.404762,
+              "h_pct": 0.859649
+            }
+          },
+          {
+            "source_self": "u372d",
+            "spread_id": "u3695",
+            "spread_index": 2,
+            "role": "content_flow_frame",
+            "bbox_pt": {
+              "x": 651.969,
+              "y": 56.693,
+              "w": 481.89,
+              "h": 694.488,
+              "x_pct": 0.547619,
+              "y_pct": 0.070175,
+              "w_pct": 0.404762,
+              "h_pct": 0.859649
+            }
+          },
+          {
+            "source_self": "u3925",
+            "spread_id": "u380d",
+            "spread_index": 3,
+            "role": "content_flow_frame",
+            "bbox_pt": {
+              "x": 56.693,
+              "y": 56.693,
+              "w": 481.89,
+              "h": 629.291,
+              "x_pct": 0.047619,
+              "y_pct": 0.070175,
+              "w_pct": 0.404762,
+              "h_pct": 0.778947
+            }
+          },
+          {
+            "source_self": "u39a7",
+            "spread_id": "u380d",
+            "spread_index": 3,
+            "role": "content_flow_frame",
+            "bbox_pt": {
+              "x": 651.969,
+              "y": 56.693,
+              "w": 481.89,
+              "h": 694.488,
+              "x_pct": 0.547619,
+              "y_pct": 0.070175,
+              "w_pct": 0.404762,
+              "h_pct": 0.859649
+            }
+          }
+        ]
+      },
+      {
+        "story_id": "u3b07",
+        "role": "answer_content_flow",
+        "frames": [
+          {
+            "source_self": "u3b04",
+            "spread_id": "u3a1e",
+            "spread_index": 4,
+            "role": "content_flow_frame",
+            "bbox_pt": {
+              "x": 56.693,
+              "y": 56.693,
+              "w": 481.89,
+              "h": 694.488,
+              "x_pct": 0.047619,
+              "y_pct": 0.070175,
+              "w_pct": 0.404762,
+              "h_pct": 0.859649
+            }
+          },
+          {
+            "source_self": "u3b1b",
+            "spread_id": "u3a1e",
+            "spread_index": 4,
+            "role": "content_flow_frame",
+            "bbox_pt": {
+              "x": 651.969,
+              "y": 56.693,
+              "w": 481.89,
+              "h": 694.488,
+              "x_pct": 0.547619,
+              "y_pct": 0.070175,
+              "w_pct": 0.404762,
+              "h_pct": 0.859649
+            }
+          },
+          {
+            "source_self": "u3c24",
+            "spread_id": "u36a9",
+            "spread_index": 5,
+            "role": "content_flow_frame",
+            "bbox_pt": {
+              "x": 56.693,
+              "y": 56.693,
+              "w": 481.89,
+              "h": 683.15,
+              "x_pct": 0.047619,
+              "y_pct": 0.070175,
+              "w_pct": 0.404762,
+              "h_pct": 0.845614
+            }
+          },
+          {
+            "source_self": "u3cb2",
+            "spread_id": "u36a9",
+            "spread_index": 5,
+            "role": "content_flow_frame",
+            "bbox_pt": {
+              "x": 651.969,
+              "y": 56.693,
+              "w": 481.89,
+              "h": 188.504,
+              "x_pct": 0.547619,
+              "y_pct": 0.070175,
+              "w_pct": 0.404762,
+              "h_pct": 0.233333
+            }
+          }
+        ]
+      }
+    ],
+    "instructions": [
+      "Generate only paper texture, low-contrast literary atmosphere, and non-text decoration outside safe_text_frames.",
+      "Do not render Chinese body text, page numbers, exercise labels, or answer labels in the image model.",
+      "Programmatic PDF layout must draw side strips, functional labels, text, and page numbers after the background layer."
+    ]
+  }
+}

@@ -1,0 +1,55 @@
+{
+  "schema_version": "0.1",
+  "description": "当前巩固内页模板的实例级排版规则。不要把这些值视为其他模板的默认值。",
+  "page_flow": {
+    "skip_empty_tail_spreads": true,
+    "repeat_last_practice_spread_when_overflow": true,
+    "repeat_last_answer_spread_when_overflow": true,
+    "dynamic_page_numbers": true
+  },
+  "styles": {
+    "main_title": {
+      "font": "FZYanSongZhong",
+      "size": 23,
+      "leading": 34,
+      "space_after": 16
+    },
+    "section_title": {
+      "font": "FZYanSongCu",
+      "size": 16,
+      "leading": 24
+    },
+    "article_body": {
+      "font": "FZKaiGBK",
+      "size": 14,
+      "leading": 24,
+      "align": "justify-last-left"
+    },
+    "question_stem": {
+      "font": "FZYanSongZhun",
+      "size": 14,
+      "leading": 27,
+      "align": "justify-last-left"
+    },
+    "option": {
+      "font": "FZKaiGBK",
+      "size": 14,
+      "leading": 27,
+      "align": "justify-last-left",
+      "left_indent": 28
+    },
+    "answer_body": {
+      "font": "FZKaiGBK",
+      "size": 14,
+      "leading": 23,
+      "align": "left"
+    }
+  },
+  "colors": {
+    "practice_red": "#c1020e",
+    "practice_bar": "#fce5e4",
+    "answer_gray": "#898989",
+    "source_text": "#bf8030",
+    "body_text": "#222222"
+  }
+}
