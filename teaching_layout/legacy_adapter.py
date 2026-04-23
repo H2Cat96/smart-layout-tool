@@ -69,6 +69,11 @@ def resolve_template_paths(template_ref: str | Path, templates_dir: Path = DEFAU
             return TemplatePaths.from_package(TemplatePackage.from_root(named_candidate))
         return TemplatePaths.from_root(named_candidate)
 
+    for package_config in sorted(templates_dir.glob("*/template-package.json")):
+        package = TemplatePackage.from_root(package_config.parent)
+        if template_text in {package.id, package.name, *package.aliases}:
+            return TemplatePaths.from_package(package)
+
     raise FileNotFoundError(
         f"Template not found as path or named package: {template_text} (templates_dir={templates_dir})"
     )

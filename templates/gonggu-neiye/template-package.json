@@ -1,6 +1,10 @@
 {
   "id": "gonggu-neiye",
-  "name": "巩固内页横版双页教辅模板",
+  "name": "人文-课后巩固",
+  "aliases": [
+    "【人文-课后巩固】",
+    "巩固内页横版双页教辅模板"
+  ],
   "engine": "legacy-generator",
   "source_root": ".",
   "paths": {

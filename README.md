@@ -18,7 +18,7 @@ python3 -m teaching_layout parse-docx \
   --docx "/Users/tal/Desktop/模板材料/【改1】贾平凹短篇：标题含义理解-课后题.docx"
 
 python3 -m teaching_layout build \
-  --template gonggu-neiye \
+  --template "人文-课后巩固" \
   --docx "/Users/tal/Desktop/模板材料/【改1】贾平凹短篇：标题含义理解-课后题.docx" \
   --out "/Users/tal/Desktop/模板材料/正式生成输出" \
   --pdf-name "贾平凹标题含义_SVG白底样式版.pdf" \
@@ -67,12 +67,13 @@ python3 -m pip install -r requirements.txt
 
 `--template` 支持两种写法：
 
-- 模板名：`gonggu-neiye`，从 `templates/gonggu-neiye/` 读取模板包配置。
+- 模板名：`人文-课后巩固` 或 `【人文-课后巩固】`，从 `templates/gonggu-neiye/` 读取模板包配置。
+- 兼容旧内部 id：`gonggu-neiye`。
 - 旧式材料路径：`/Users/tal/Desktop/模板材料`，兼容早期直接指向模板材料目录的用法。
 
 ## 第一版验证结果
 
-使用当前“巩固内页”模板包生成的 CLI 测试产物：
+使用当前“人文-课后巩固”模板包生成的 CLI 测试产物：
 
 ```text
 /Users/tal/Desktop/模板材料/CLI生成输出/贾平凹标题含义_CLI测试版.pdf
@@ -94,7 +95,7 @@ python3 -m pip install -r requirements.txt
 
 ```text
 templates/
-  gonggu-neiye/
+  gonggu-neiye/                # 内部目录 id，用户可见名称是“人文-课后巩固”
     template-package.json
     layout-rules.json
     asset-map.json
@@ -111,6 +112,6 @@ templates/
 
 `template-package.json` 负责声明这个模板实例的源材料位置和渲染后端；`layout-rules.json`、`asset-map.json` 放该模板自己的差异化规则。不要把某个模板的字体、颜色、题号位置当成全局默认。
 
-当前 `gonggu-neiye` 模板包已经把旧生成脚本、抽取出的版面 JSON 和 SVG 资产放进仓库目录；字体文件仍由 `extracted/font-map.json` 指向本机模板材料中的字体文件，避免仓库直接纳入大体积字体包。
+当前 `gonggu-neiye` 模板包的用户可见名称是“人文-课后巩固”，已经把旧生成脚本、抽取出的版面 JSON 和 SVG 资产放进仓库目录；字体文件仍由 `extracted/font-map.json` 指向本机模板材料中的字体文件，避免仓库直接纳入大体积字体包。
 
 后续版本会继续把 `generate_print_pdf.py` 拆成真正的模板无关模块，让模板包配置直接驱动核心引擎。

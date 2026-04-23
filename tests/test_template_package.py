@@ -19,6 +19,7 @@ class TemplatePackageTests(unittest.TestCase):
                     {
                         "id": "sample",
                         "name": "Sample Template",
+                        "aliases": ["示例模板"],
                         "engine": "legacy-generator",
                         "source_root": str(source),
                         "paths": {
@@ -39,6 +40,8 @@ class TemplatePackageTests(unittest.TestCase):
             loaded = TemplatePackage.from_root(package)
 
             self.assertEqual(loaded.id, "sample")
+            self.assertEqual(loaded.name, "Sample Template")
+            self.assertEqual(loaded.aliases, ("示例模板",))
             self.assertEqual(loaded.generator, source / "extracted" / "generate.py")
             self.assertEqual(loaded.template_json, source / "extracted" / "template.json")
             self.assertEqual(loaded.font_map, source / "extracted" / "font-map.json")
@@ -91,3 +94,12 @@ class TemplatePackageTests(unittest.TestCase):
         self.assertEqual(paths.template_json, paths.root / "extracted" / "template.json")
         self.assertEqual(paths.font_map, paths.root / "extracted" / "font-map.json")
         self.assertEqual(paths.svg_dir, paths.root / "assets" / "svg")
+
+    def test_builtin_template_resolves_by_human_readable_name_and_alias(self):
+        repo_root = Path(__file__).resolve().parents[1]
+
+        paths_by_name = resolve_template_paths("人文-课后巩固")
+        paths_by_alias = resolve_template_paths("【人文-课后巩固】")
+
+        self.assertEqual(paths_by_name.root, repo_root / "templates" / "gonggu-neiye")
+        self.assertEqual(paths_by_alias.root, repo_root / "templates" / "gonggu-neiye")

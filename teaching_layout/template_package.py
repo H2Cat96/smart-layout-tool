@@ -21,6 +21,7 @@ def _resolve_path(base: Path, value: str) -> Path:
 class TemplatePackage:
     id: str
     name: str
+    aliases: tuple[str, ...]
     root: Path
     engine: str
     source_root: Path
@@ -47,6 +48,7 @@ class TemplatePackage:
         return cls(
             id=data["id"],
             name=data.get("name", data["id"]),
+            aliases=tuple(data.get("aliases", [])),
             root=package_root,
             engine=data.get("engine", "legacy-generator"),
             source_root=source_root,
