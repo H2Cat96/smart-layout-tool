@@ -6,6 +6,7 @@ from pathlib import Path
 
 from .docx_parser import summarize_docx
 from .legacy_adapter import build_with_legacy_generator
+from .template_importer import import_template
 from .validator import validate_pdf
 
 
@@ -33,6 +34,17 @@ def validate_command(args: argparse.Namespace) -> None:
     print(json.dumps(result, ensure_ascii=False, indent=2))
 
 
+def import_template_command(args: argparse.Namespace) -> None:
+    result = import_template(
+        template_id=args.id,
+        name=args.name,
+        source_dir=Path(args.source),
+        templates_dir=Path(args.templates_dir),
+        overwrite=args.overwrite,
+    )
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+
+
 def create_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="teaching-layout", description="Local CLI engine for teaching-aid PDF layout.")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -56,6 +68,25 @@ def create_parser() -> argparse.ArgumentParser:
     validate.add_argument("--pdf", required=True)
     validate.add_argument("--manifest", default=None)
     validate.set_defaults(func=validate_command)
+
+    import_template_parser = subparsers.add_parser(
+        "import-template",
+        help="Create a template package skeleton from raw assets.",
+    )
+    import_template_parser.add_argument("--id", required=True, help="Template id, e.g. gonggu-neiye")
+    import_template_parser.add_argument("--name", required=True, help="Human-readable template name")
+    import_template_parser.add_argument("--source", required=True, help="Source folder containing assets/")
+    import_template_parser.add_argument(
+        "--templates-dir",
+        default=str(Path(__file__).resolve().parents[1] / "templates"),
+        help="Destination templates directory",
+    )
+    import_template_parser.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="Overwrite an existing template package with the same id",
+    )
+    import_template_parser.set_defaults(func=import_template_command)
 
     return parser
 
