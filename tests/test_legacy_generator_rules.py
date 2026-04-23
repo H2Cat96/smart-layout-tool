@@ -83,6 +83,29 @@ class LegacyGeneratorRulesTests(unittest.TestCase):
                 self.assertEqual(round(float(page.mediabox.width), 3), 100)
                 self.assertEqual(round(float(page.mediabox.height), 3), 100)
 
+    def test_color_mode_cmyk_uses_k_only_for_neutral_colors(self):
+        generator = load_generator()
+
+        black = generator.color_from_hex("#222222", (0, 0, 0), color_mode="cmyk")
+        gray = generator.color_from_hex("#898989", (0, 0, 0), color_mode="cmyk")
+        red = generator.color_from_hex("#c1020e", (0, 0, 0), color_mode="cmyk")
+
+        self.assertEqual((black.cyan, black.magenta, black.yellow), (0, 0, 0))
+        self.assertGreater(black.black, 0.8)
+        self.assertEqual((gray.cyan, gray.magenta, gray.yellow), (0, 0, 0))
+        self.assertGreater(gray.black, 0.4)
+        self.assertGreater(red.magenta, 0.8)
+        self.assertGreater(red.yellow, 0.8)
+
+    def test_color_mode_rgb_preserves_rgb_colors(self):
+        generator = load_generator()
+
+        color = generator.color_from_hex("#898989", (0, 0, 0), color_mode="rgb")
+
+        self.assertAlmostEqual(color.red, 137 / 255)
+        self.assertAlmostEqual(color.green, 137 / 255)
+        self.assertAlmostEqual(color.blue, 137 / 255)
+
     def test_gonggu_specific_style_fixes(self):
         generator = load_generator()
         fonts = {

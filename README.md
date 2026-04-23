@@ -33,7 +33,7 @@ python3 -m teaching_layout validate \
   --manifest "/path/to/output-folder/generation-manifest.json"
 ```
 
-`build` 默认输出 IDML 单页尺寸 PDF。需要保留旧的横向对页调试输出时，加 `--page-mode spread`。
+`build` 默认输出 IDML 单页尺寸 PDF，并使用程序绘制 CMYK 颜色。需要保留旧的横向对页调试输出时，加 `--page-mode spread`；需要旧 RGB 颜色时，加 `--color-mode rgb`。
 
 分享前可以检查模板包：
 

@@ -26,7 +26,7 @@ from docx.table import Table
 from docx.text.paragraph import Paragraph
 from PIL import Image
 from pypdf import PdfReader
-from reportlab.lib.colors import Color, HexColor
+from reportlab.lib.colors import CMYKColor, Color
 from reportlab.lib.utils import ImageReader
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
@@ -296,11 +296,43 @@ def group_frames_by_spread(frames: list[dict[str, Any]]) -> OrderedDict[int, lis
     return grouped
 
 
-def color_from_hex(hex_value: str | None, fallback: tuple[float, float, float]) -> Color:
+def _rgb_from_hex(hex_value: str | None, fallback: tuple[float, float, float]) -> tuple[float, float, float]:
     try:
-        return HexColor(hex_value) if hex_value else Color(*fallback)
+        if not hex_value:
+            return fallback
+        value = hex_value.strip().lstrip("#")
+        if len(value) != 6:
+            return fallback
+        return (
+            int(value[0:2], 16) / 255,
+            int(value[2:4], 16) / 255,
+            int(value[4:6], 16) / 255,
+        )
     except Exception:
-        return Color(*fallback)
+        return fallback
+
+
+def _cmyk_from_rgb(r: float, g: float, b: float) -> CMYKColor:
+    if abs(r - g) < 1e-6 and abs(g - b) < 1e-6:
+        return CMYKColor(0, 0, 0, max(0, min(1, 1 - r)))
+    k = 1 - max(r, g, b)
+    if k >= 1:
+        return CMYKColor(0, 0, 0, 1)
+    c = (1 - r - k) / (1 - k)
+    m = (1 - g - k) / (1 - k)
+    y = (1 - b - k) / (1 - k)
+    return CMYKColor(c, m, y, k)
+
+
+def color_from_hex(
+    hex_value: str | None,
+    fallback: tuple[float, float, float],
+    color_mode: str = "rgb",
+) -> Color:
+    r, g, b = _rgb_from_hex(hex_value, fallback)
+    if color_mode == "cmyk":
+        return _cmyk_from_rgb(r, g, b)
+    return Color(r, g, b)
 
 
 def resolve_svg_asset_path(svg_dir: Path, file_name: str) -> Path:
@@ -365,6 +397,7 @@ def draw_title_corner_svg(
     y_top: float,
     assets: dict[str, dict[str, Any]],
     asset_name: str = "标题角标",
+    color_mode: str = "rgb",
 ) -> None:
     asset = assets.get(asset_name)
     if not asset:
@@ -373,7 +406,7 @@ def draw_title_corner_svg(
     page_h = c._pagesize[1]
     c.saveState()
     c.translate(x, page_h - y_top - h)
-    c.setFillColor(HexColor(asset["fill"]))
+    c.setFillColor(color_from_hex(asset["fill"], (0, 0, 0), color_mode))
     p = c.beginPath()
     if asset_name == "参考答案":
         p.moveTo(5.63, 0)
@@ -416,12 +449,13 @@ def draw_title_bar_svg(
     width: float,
     assets: dict[str, dict[str, Any]],
     fallback_color: str,
+    color_mode: str = "rgb",
 ) -> float:
     asset = assets.get("标题")
     height = asset["height"] if asset else 28.35
     fill = fallback_color
     page_h = c._pagesize[1]
-    c.setFillColor(HexColor(fill))
+    c.setFillColor(color_from_hex(fill, (.95, .95, .95), color_mode))
     c.roundRect(x, page_h - y_top - height, width, height, height / 2, fill=1, stroke=0)
     return height
 
@@ -433,15 +467,16 @@ def draw_number_badge_svg(
     text: str,
     font: str,
     assets: dict[str, dict[str, Any]],
+    color_mode: str = "rgb",
 ) -> None:
     asset = assets.get("序号")
     width = asset["width"] if asset else 22.68
     height = asset["height"] if asset else 12.76
     fill = asset["fill"] if asset else "#c1020e"
     page_h = c._pagesize[1]
-    c.setFillColor(HexColor(fill))
+    c.setFillColor(color_from_hex(fill, (.76, 0, .05), color_mode))
     c.roundRect(x, page_h - y_top - height, width, height, 2.84, fill=1, stroke=0)
-    c.setFillColor(HexColor("#ffffff"))
+    c.setFillColor(color_from_hex("#ffffff", (1, 1, 1), color_mode))
     c.setFont(font, 8.5)
     c.drawCentredString(x + width / 2, page_h - y_top - height + 3.2, text)
 
@@ -818,17 +853,18 @@ def draw_paragraph_lines(
     start_cursor: float,
     svg_assets: dict[str, dict[str, Any]],
     has_rest: bool = False,
+    color_mode: str = "rgb",
 ) -> float:
     x = frame["x"]
     w = frame["w"]
     cursor = start_cursor + style["space_before"]
     if style.get("bar") and lines:
-        draw_title_bar_svg(c, x + 1, cursor, w - 2, svg_assets, style["bar_color"])
+        draw_title_bar_svg(c, x + 1, cursor, w - 2, svg_assets, style["bar_color"], color_mode)
         # The title bar SVG is 28.35 pt high; set the text baseline near its optical center.
         cursor -= 6
     if style.get("kind") == "answer_line" and lines:
         cursor += style["leading"]
-        c.setStrokeColor(HexColor("#222222"))
+        c.setStrokeColor(color_from_hex("#222222", (.13, .13, .13), color_mode))
         c.setLineWidth(0.45)
         y = c._pagesize[1] - cursor + 3
         x_offset = line_x_offset(style, first_line=True)
@@ -836,7 +872,7 @@ def draw_paragraph_lines(
         cursor += style["space_after"]
         return cursor
     c.setFont(style["font"], style["size"])
-    c.setFillColor(HexColor(style["color"]))
+    c.setFillColor(color_from_hex(style["color"], (.13, .13, .13), color_mode))
     first_line = True
     text_offset = 0
     for line_index, line in enumerate(lines):
@@ -851,17 +887,24 @@ def draw_paragraph_lines(
             tx = x + 8 + x_offset
         if first_line and style.get("title_marker"):
             # Align the 30.05 pt corner SVG with the main title's visual center.
-            draw_title_corner_svg(c, x + 1, cursor - 22, svg_assets, style.get("title_marker_asset", "标题角标"))
-            c.setFillColor(HexColor(style["color"]))
+            draw_title_corner_svg(
+                c,
+                x + 1,
+                cursor - 22,
+                svg_assets,
+                style.get("title_marker_asset", "标题角标"),
+                color_mode,
+            )
+            c.setFillColor(color_from_hex(style["color"], (.13, .13, .13), color_mode))
             tx = x + 42
         if first_line and style.get("badge_text"):
             bx = x + 8
             # Align the 12.76 pt number SVG to the first-line baseline.
-            draw_number_badge_svg(c, bx, cursor - 12, style["badge_text"], style["font"], svg_assets)
+            draw_number_badge_svg(c, bx, cursor - 12, style["badge_text"], style["font"], svg_assets, color_mode)
             c.setFont(style["font"], style["size"])
-            c.setFillColor(HexColor(style["color"]))
+            c.setFillColor(color_from_hex(style["color"], (.13, .13, .13), color_mode))
         if first_line and style.get("bold_rule"):
-            c.setStrokeColor(HexColor("#cccccc"))
+            c.setStrokeColor(color_from_hex("#cccccc", (.8, .8, .8), color_mode))
             c.setLineWidth(0.4)
             y_rule = c._pagesize[1] - cursor - 6
             c.line(x + 8, y_rule, x + w - 8, y_rule)
@@ -875,13 +918,13 @@ def draw_paragraph_lines(
             extra = max(0, (available_w - line_width) / (len(line) - 1))
             text_obj = c.beginText(tx, c._pagesize[1] - cursor)
             text_obj.setFont(style["font"], style["size"])
-            text_obj.setFillColor(HexColor(style["color"]))
+            text_obj.setFillColor(color_from_hex(style["color"], (.13, .13, .13), color_mode))
             text_obj.setCharSpace(extra)
             text_obj.textLine(line)
             c.drawText(text_obj)
         else:
             c.drawString(tx, c._pagesize[1] - cursor, line)
-        draw_underlines_for_line(c, line, text_offset, tx, cursor, style)
+        draw_underlines_for_line(c, line, text_offset, tx, cursor, style, color_mode)
         text_offset += len(line)
         first_line = False
     if lines:
@@ -896,12 +939,13 @@ def draw_underlines_for_line(
     tx: float,
     cursor: float,
     style: dict[str, Any],
+    color_mode: str = "rgb",
 ) -> None:
     ranges = style.get("underline_ranges") or []
     if not ranges or not line:
         return
     line_end = line_start + len(line)
-    c.setStrokeColor(HexColor(style["color"]))
+    c.setStrokeColor(color_from_hex(style["color"], (.13, .13, .13), color_mode))
     c.setLineWidth(0.45)
     y = c._pagesize[1] - cursor - 2.2
     for start, end in ranges:
@@ -957,6 +1001,7 @@ def draw_table_block(
     style: dict[str, Any],
     frame: dict[str, float],
     start_cursor: float,
+    color_mode: str = "rgb",
 ) -> float:
     rows = table_rows(block)
     left_indent = style.get("left_indent", 0)
@@ -968,16 +1013,16 @@ def draw_table_block(
     col_w = w / max(1, col_count)
     heights = table_row_heights(rows, style, w)
     c.setFont(style["font"], style["size"])
-    c.setFillColor(HexColor(style["color"]))
-    c.setStrokeColor(HexColor(style["border_color"]))
+    c.setFillColor(color_from_hex(style["color"], (.13, .13, .13), color_mode))
+    c.setStrokeColor(color_from_hex(style["border_color"], (.47, .47, .47), color_mode))
     c.setLineWidth(0.45)
     y = y_top_pdf
     for row_index, row in enumerate(rows):
         row_h = heights[row_index]
         if row_index == 0:
-            c.setFillColor(HexColor(style["header_fill"]))
+            c.setFillColor(color_from_hex(style["header_fill"], (.9, .9, .9), color_mode))
             c.rect(x, y - row_h, w, row_h, fill=1, stroke=0)
-            c.setFillColor(HexColor(style["color"]))
+            c.setFillColor(color_from_hex(style["color"], (.13, .13, .13), color_mode))
         for col_index in range(col_count):
             cell_x = x + col_w * col_index
             c.rect(cell_x, y - row_h, col_w, row_h, fill=0, stroke=1)
@@ -997,14 +1042,15 @@ def paint_background(
     page_w: float,
     page_h: float,
     mode: str,
+    color_mode: str = "rgb",
 ) -> None:
     if mode == "white":
-        c.setFillColor(HexColor("#ffffff"))
+        c.setFillColor(color_from_hex("#ffffff", (1, 1, 1), color_mode))
         c.rect(0, 0, page_w, page_h, fill=1, stroke=0)
     elif background_path.exists():
         c.drawImage(ImageReader(str(background_path)), 0, 0, width=page_w, height=page_h, preserveAspectRatio=False, mask=None)
     else:
-        c.setFillColor(HexColor("#ffffff"))
+        c.setFillColor(color_from_hex("#ffffff", (1, 1, 1), color_mode))
         c.rect(0, 0, page_w, page_h, fill=1, stroke=0)
 
 
@@ -1017,6 +1063,7 @@ def paint_template_shell(
     background_mode: str,
     layout_rules: dict[str, Any],
     page_number_start: int | None = None,
+    color_mode: str = "rgb",
 ) -> None:
     for slot in spread["slots"]:
         b = slot["bbox_pt"]
@@ -1027,7 +1074,7 @@ def paint_template_shell(
                 if spread["spread_index"] < 4
                 else config_color(layout_rules, "answer_gray", "#898989")
             )
-            c.setFillColor(color_from_hex(fill, (.94, .86, .89)))
+            c.setFillColor(color_from_hex(fill, (.94, .86, .89), color_mode))
             c.rect(x, page_h - y - h, w, h, fill=1, stroke=0)
         elif slot["role"] == "page_number":
             if page_number_start is None:
@@ -1036,7 +1083,7 @@ def paint_template_shell(
                 page_no = page_number_start + (1 if x + w / 2 >= page_w / 2 else 0)
                 txt = f"·{page_no}·"
             c.setFont(footer_font, 10)
-            c.setFillColor(HexColor("#555555"))
+            c.setFillColor(color_from_hex("#555555", (.33, .33, .33), color_mode))
             c.drawCentredString(x + w / 2, page_h - y - h / 2 - 3, txt)
 
 
@@ -1055,6 +1102,7 @@ def render_flow(
     page_number_start: int | None,
     layout_rules: dict[str, Any],
     allow_repeat: bool,
+    color_mode: str = "rgb",
 ) -> dict[str, Any]:
     grouped = group_frames_by_spread(frames)
     frame_entries = list(grouped.items())
@@ -1078,7 +1126,7 @@ def render_flow(
             break
         spread = spread_by_index(template, spread_index)
         bg = background_path_for_spread(background_dir, spread_index)
-        paint_background(c, bg, page_w, page_h, background_mode)
+        paint_background(c, bg, page_w, page_h, background_mode, color_mode)
         paint_template_shell(
             c,
             spread,
@@ -1088,6 +1136,7 @@ def render_flow(
             background_mode,
             layout_rules,
             page_number_start=page_number_start + len(rendered_pages) * 2,
+            color_mode=color_mode,
         )
         page_started_at = paragraph_idx
         remainder_started_at = remainder
@@ -1107,7 +1156,7 @@ def render_flow(
                     if cursor + table_h > y_bottom:
                         remainder = text
                         break
-                    cursor = draw_table_block(c, text, style, frame, cursor)
+                    cursor = draw_table_block(c, text, style, frame, cursor, color_mode)
                     remainder = None
                     paragraph_idx += 1
                     continue
@@ -1124,7 +1173,16 @@ def render_flow(
                 if not lines and rest:
                     remainder = text
                     break
-                cursor = draw_paragraph_lines(c, lines, style, frame, cursor, svg_assets, has_rest=bool(rest))
+                cursor = draw_paragraph_lines(
+                    c,
+                    lines,
+                    style,
+                    frame,
+                    cursor,
+                    svg_assets,
+                    has_rest=bool(rest),
+                    color_mode=color_mode,
+                )
                 if rest:
                     remainder = make_remainder_block(rest, style)
                     break
@@ -1233,6 +1291,9 @@ def build_pdf(args: argparse.Namespace) -> dict[str, Any]:
     page_mode = getattr(args, "page_mode", "single")
     if page_mode not in {"single", "spread"}:
         raise ValueError(f"Unsupported page mode: {page_mode}")
+    color_mode = getattr(args, "color_mode", "cmyk")
+    if color_mode not in {"cmyk", "rgb"}:
+        raise ValueError(f"Unsupported color mode: {color_mode}")
     output_page_w = single_page_w if page_mode == "single" else spread_page_w
     style_fonts = font_map["style_defaults"]
     page_flow_rules = layout_rules.get("page_flow", {})
@@ -1264,6 +1325,7 @@ def build_pdf(args: argparse.Namespace) -> dict[str, Any]:
         page_number_start=1 if dynamic_page_numbers else None,
         layout_rules=layout_rules,
         allow_repeat=page_flow_rules.get("repeat_last_practice_spread_when_overflow", True),
+        color_mode=color_mode,
     )
     answer_page_number_start = 1 + len(practice_result["rendered_pages"]) * 2
     answer_result = render_flow(
@@ -1281,6 +1343,7 @@ def build_pdf(args: argparse.Namespace) -> dict[str, Any]:
         page_number_start=answer_page_number_start if dynamic_page_numbers else None,
         layout_rules=layout_rules,
         allow_repeat=page_flow_rules.get("repeat_last_answer_spread_when_overflow", True),
+        color_mode=color_mode,
     )
     c.save()
     if page_mode == "single":
@@ -1302,6 +1365,7 @@ def build_pdf(args: argparse.Namespace) -> dict[str, Any]:
             "layout_rules": str(args.layout_rules) if getattr(args, "layout_rules", None) else None,
             "asset_map": str(args.asset_map) if getattr(args, "asset_map", None) else None,
             "page_mode": page_mode,
+            "color_mode": color_mode,
         },
         "outputs": {
             "pdf": str(pdf_path),
@@ -1309,6 +1373,7 @@ def build_pdf(args: argparse.Namespace) -> dict[str, Any]:
             "background_prompts": str(prompts_path),
         },
         "page_mode": page_mode,
+        "color_mode": color_mode,
         "page_size_pt": {"w": round(output_page_w, 3), "h": round(page_h, 3)},
         "spread_page_size_pt": {"w": round(spread_page_w, 3), "h": round(page_h, 3)},
         "backgrounds": background_records,
@@ -1342,6 +1407,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--preview-name", default="贾平凹标题含义_正式流程版_预览.png")
     parser.add_argument("--title", default="贾平凹标题含义理解")
     parser.add_argument("--page-mode", choices=["single", "spread"], default="single")
+    parser.add_argument("--color-mode", choices=["cmyk", "rgb"], default="cmyk")
     parser.add_argument("--layout-rules", default=None)
     parser.add_argument("--asset-map", default=None)
     return parser.parse_args()

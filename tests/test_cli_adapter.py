@@ -78,3 +78,4 @@ class CliAdapterTests(unittest.TestCase):
             )
 
             self.assertEqual(builder.call_args.kwargs["page_mode"], "single")
+            self.assertEqual(builder.call_args.kwargs["color_mode"], "cmyk")

@@ -21,6 +21,7 @@ def build_command(args: argparse.Namespace) -> None:
         title=args.title,
         background_mode=args.background_mode,
         page_mode=args.page_mode,
+        color_mode=args.color_mode,
         templates_dir=Path(args.templates_dir),
     )
     print(json.dumps(manifest["outputs"], ensure_ascii=False, indent=2))
@@ -70,6 +71,12 @@ def create_parser() -> argparse.ArgumentParser:
         choices=["single", "spread"],
         default="single",
         help="Output PDF page mode. single uses IDML page size; spread keeps double-page spreads.",
+    )
+    build.add_argument(
+        "--color-mode",
+        choices=["cmyk", "rgb"],
+        default="cmyk",
+        help="Output drawing color mode. cmyk uses print-oriented CMYK colors.",
     )
     build.set_defaults(func=build_command)
 
