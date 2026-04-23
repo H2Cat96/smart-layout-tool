@@ -3,6 +3,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from docx import Document
+
 
 GENERATOR_PATH = (
     Path(__file__).resolve().parents[1]
@@ -21,6 +23,91 @@ def load_generator():
 
 
 class LegacyGeneratorRulesTests(unittest.TestCase):
+    def test_load_docx_paragraphs_preserves_tables_and_underlined_runs(self):
+        generator = load_generator()
+        with tempfile.TemporaryDirectory() as tmp:
+            docx_path = Path(tmp) / "sample.docx"
+            doc = Document()
+            p = doc.add_paragraph()
+            p.add_run("普通文字")
+            p.add_run("画线文字").underline = True
+            table = doc.add_table(rows=2, cols=2)
+            table.cell(0, 0).text = "事件"
+            table.cell(0, 1).text = "作者感情"
+            table.cell(1, 0).text = "听到消息"
+            table.cell(1, 1).text = "伤感"
+            doc.save(docx_path)
+
+            blocks = generator.load_docx_paragraphs(docx_path)
+
+            self.assertEqual(blocks[0]["type"], "paragraph")
+            self.assertEqual(blocks[0]["text"], "普通文字画线文字")
+            self.assertEqual(blocks[0]["underline_ranges"], [[4, 8]])
+            self.assertEqual(blocks[1]["type"], "table")
+            self.assertEqual(blocks[1]["rows"], [["事件", "作者感情"], ["听到消息", "伤感"]])
+
+    def test_gonggu_specific_style_fixes(self):
+        generator = load_generator()
+        fonts = {
+            "title": "Title",
+            "title_mid": "TitleMid",
+            "title_bold": "TitleBold",
+            "question": "Question",
+            "body": "Body",
+            "footer": "Footer",
+        }
+
+        article_title = generator.paragraph_style("泉", 3, False, fonts, {})
+        author = generator.paragraph_style("贾平凹", 4, False, fonts, {})
+        source = generator.paragraph_style("（2011-2012北京顺义九上期末）", 15, False, fonts, {})
+        answer_label = generator.paragraph_style("【答案】", 2, True, fonts, {})
+        answer_section = generator.paragraph_style("【练习二】", 1, True, fonts, {})
+
+        self.assertEqual(article_title["font"], "TitleMid")
+        self.assertEqual(author["font"], "Body")
+        self.assertEqual(author["size"], 14)
+        self.assertEqual(source["align"], "left")
+        self.assertEqual(answer_label["kind"], "answer_label")
+        self.assertFalse(answer_label["bar"])
+        self.assertNotIn("bold_rule", answer_label)
+        self.assertEqual(answer_section["kind"], "section")
+        self.assertTrue(answer_section["bar"])
+
+    def test_template_shell_draws_side_strips_on_white_background(self):
+        generator = load_generator()
+
+        class FakeCanvas:
+            def __init__(self):
+                self.rects = []
+
+            def setFillColor(self, color):
+                self.color = color
+
+            def rect(self, x, y, w, h, fill, stroke):
+                self.rects.append((x, y, w, h, fill, stroke))
+
+            def setFont(self, font, size):
+                pass
+
+            def drawCentredString(self, x, y, text):
+                pass
+
+        canvas = FakeCanvas()
+        spread = {
+            "spread_index": 2,
+            "slots": [
+                {
+                    "role": "side_strip",
+                    "bbox_pt": {"x": 0, "y": 0, "w": 20, "h": 100},
+                    "fill_rgb": "#ffd9ed",
+                }
+            ],
+        }
+
+        generator.paint_template_shell(canvas, spread, 200, 100, "Footer", "white", page_number_start=1)
+
+        self.assertEqual(canvas.rects, [(0, 0, 20, 100, 1, 0)])
+
     def test_paragraph_style_uses_layout_rule_overrides(self):
         generator = load_generator()
         fonts = {

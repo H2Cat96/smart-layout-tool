@@ -22,6 +22,8 @@ from typing import Any
 
 import fitz
 from docx import Document
+from docx.table import Table
+from docx.text.paragraph import Paragraph
 from PIL import Image
 from pypdf import PdfReader
 from reportlab.lib.colors import Color, HexColor
@@ -91,22 +93,69 @@ def is_underlined_blank_paragraph(paragraph: Any) -> bool:
     return any("<w:u" in run._element.xml for run in paragraph.runs)
 
 
-def load_docx_paragraphs(docx_path: Path) -> list[str]:
-    doc = Document(docx_path)
-    paragraphs: list[str] = []
-    for p in doc.paragraphs:
-        if is_underlined_blank_paragraph(p):
-            paragraphs.append(ANSWER_LINE_SENTINEL)
+def paragraph_underline_ranges(paragraph: Any) -> list[list[int]]:
+    ranges: list[list[int]] = []
+    cursor = 0
+    for run in paragraph.runs:
+        text = re.sub(r"[\r\n\t]+", " ", run.text)
+        if not text:
             continue
-        text = clean_text(p.text)
-        if text:
-            paragraphs.append(text)
-    return paragraphs
+        start = cursor
+        cursor += len(text)
+        if text.strip() and "<w:u" in run._element.xml:
+            ranges.append([start, cursor])
+    return ranges
 
 
-def split_practice_and_answers(paragraphs: list[str]) -> tuple[list[str], list[str]]:
+def clean_cell_text(text: str) -> str:
+    return re.sub(r"[\r\n\t]+", " ", text).strip()
+
+
+def block_text(block: Any) -> str:
+    if isinstance(block, dict):
+        return block.get("text", "")
+    return str(block)
+
+
+def is_table_block(block: Any) -> bool:
+    return isinstance(block, dict) and block.get("type") == "table"
+
+
+def table_rows(block: dict[str, Any]) -> list[list[str]]:
+    return block.get("rows", [])
+
+
+def load_docx_paragraphs(docx_path: Path) -> list[Any]:
+    doc = Document(docx_path)
+    blocks: list[Any] = []
+    for child in doc.element.body.iterchildren():
+        if child.tag.endswith("}p"):
+            p = Paragraph(child, doc)
+            if is_underlined_blank_paragraph(p):
+                blocks.append(ANSWER_LINE_SENTINEL)
+                continue
+            text = clean_text(p.text)
+            if not text:
+                continue
+            underline_ranges = paragraph_underline_ranges(p)
+            if underline_ranges:
+                blocks.append({"type": "paragraph", "text": text, "underline_ranges": underline_ranges})
+            else:
+                blocks.append(text)
+        elif child.tag.endswith("}tbl"):
+            table = Table(child, doc)
+            rows = [
+                [clean_cell_text(cell.text) for cell in row.cells]
+                for row in table.rows
+            ]
+            if rows:
+                blocks.append({"type": "table", "rows": rows})
+    return blocks
+
+
+def split_practice_and_answers(paragraphs: list[Any]) -> tuple[list[Any], list[Any]]:
     split_idx = next(
-        (i for i, text in enumerate(paragraphs) if "参考答案" in text),
+        (i for i, text in enumerate(paragraphs) if "参考答案" in block_text(text)),
         len(paragraphs),
     )
     return paragraphs[:split_idx], paragraphs[split_idx:]
@@ -399,13 +448,15 @@ def write_background_prompt_manifest(output_dir: Path, template: dict[str, Any])
 
 
 def paragraph_style(
-    text: str,
+    text: Any,
     pos: int,
     is_answer: bool,
     fonts: dict[str, str],
     layout_rules: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     layout_rules = layout_rules or {}
+    underline_ranges = text.get("underline_ranges", []) if isinstance(text, dict) else []
+    text = block_text(text)
     yan_mid = fonts.get("title_mid", fonts["title"])
     yan_bold = fonts.get("title_bold", fonts["title"])
     yan_regular = fonts.get("question", fonts["title"])
@@ -469,7 +520,7 @@ def paragraph_style(
     if text == "贾平凹":
         return apply_style_rule({
             "kind": "author",
-            "font": yan_mid,
+            "font": kai,
             "size": 14,
             "leading": 20,
             "align": "center",
@@ -479,6 +530,19 @@ def paragraph_style(
             "first_line_indent": 0,
             "bar": False,
         }, layout_rules, "author")
+    if is_answer and text in {"【答案】", "【解析】", "答案：", "答案:", "解析：", "解析:"}:
+        return apply_style_rule({
+            "kind": "answer_label",
+            "font": yan_mid,
+            "size": 14,
+            "leading": 23,
+            "align": "left",
+            "color": "#111111",
+            "space_before": 5,
+            "space_after": 2,
+            "first_line_indent": 0,
+            "bar": False,
+        }, layout_rules, "answer_label")
     if text.startswith("【") and text.endswith("】"):
         return apply_style_rule({
             "kind": "section",
@@ -495,20 +559,6 @@ def paragraph_style(
             if is_answer
             else config_color(layout_rules, "practice_bar", "#fce5e4"),
         }, layout_rules, "section_title")
-    if is_answer and text in {"答案：", "答案:", "解析：", "解析:"}:
-        return apply_style_rule({
-            "kind": "answer_label",
-            "font": yan_mid,
-            "size": 14,
-            "leading": 23,
-            "align": "left",
-            "color": "#111111",
-            "space_before": 5,
-            "space_after": 2,
-            "first_line_indent": 0,
-            "bar": False,
-            "bold_rule": True,
-        }, layout_rules, "answer_label")
     if question_match and not is_answer:
         number, body = question_match.groups()
         return apply_style_rule({
@@ -560,7 +610,7 @@ def paragraph_style(
             "font": yan_mid,
             "size": 12,
             "leading": 20,
-            "align": "right",
+            "align": "left",
             "color": config_color(layout_rules, "source_text", "#bf8030"),
             "space_before": 4,
             "space_after": 5,
@@ -577,6 +627,7 @@ def paragraph_style(
         "space_before": 1,
         "space_after": 3 if is_answer else 2,
         "first_line_indent": 18 if re.match(r"^[①②③④⑤⑥⑦⑧⑨⑩]", text) else 0,
+        "underline_ranges": underline_ranges,
         "bar": False,
     }, layout_rules, "answer_body" if is_answer else "article_body")
 
@@ -629,22 +680,23 @@ def wrap_text_by_widths(text: str, style: dict[str, Any], widths: list[float]) -
 
 
 def fit_lines(
-    text: str,
+    text: Any,
     style: dict[str, Any],
     frame: dict[str, float],
     cursor: float,
 ) -> tuple[list[str], str]:
+    text_value = block_text(text)
     y_bottom = frame["y"] + frame["h"] - 6
     if style.get("kind") == "answer_line":
         cursor += style["space_before"]
         if cursor + style["leading"] > y_bottom:
-            return [], text
+            return [], text_value
         return [""], ""
     base_w = frame["w"] - 16 - style.get("left_indent", 0)
     if style.get("first_line_indent"):
-        lines = wrap_text_by_widths(style.get("display_text", text), style, [base_w - style["first_line_indent"], base_w])
+        lines = wrap_text_by_widths(style.get("display_text", text_value), style, [base_w - style["first_line_indent"], base_w])
     else:
-        lines = wrap_text(style.get("display_text", text), style, base_w)
+        lines = wrap_text(style.get("display_text", text_value), style, base_w)
     cursor += style["space_before"]
     if style.get("bar"):
         cursor += 2
@@ -688,6 +740,7 @@ def draw_paragraph_lines(
     c.setFont(style["font"], style["size"])
     c.setFillColor(HexColor(style["color"]))
     first_line = True
+    text_offset = 0
     for line_index, line in enumerate(lines):
         cursor += style["leading"]
         indent = style.get("first_line_indent", 0) if first_line else 0
@@ -731,10 +784,113 @@ def draw_paragraph_lines(
             c.drawText(text_obj)
         else:
             c.drawString(tx, c._pagesize[1] - cursor, line)
+        draw_underlines_for_line(c, line, text_offset, tx, cursor, style)
+        text_offset += len(line)
         first_line = False
     if lines:
         cursor += style["space_after"]
     return cursor
+
+
+def draw_underlines_for_line(
+    c: canvas.Canvas,
+    line: str,
+    line_start: int,
+    tx: float,
+    cursor: float,
+    style: dict[str, Any],
+) -> None:
+    ranges = style.get("underline_ranges") or []
+    if not ranges or not line:
+        return
+    line_end = line_start + len(line)
+    c.setStrokeColor(HexColor(style["color"]))
+    c.setLineWidth(0.45)
+    y = c._pagesize[1] - cursor - 2.2
+    for start, end in ranges:
+        overlap_start = max(start, line_start)
+        overlap_end = min(end, line_end)
+        if overlap_start >= overlap_end:
+            continue
+        prefix = line[: overlap_start - line_start]
+        segment = line[overlap_start - line_start : overlap_end - line_start]
+        x1 = tx + text_width(prefix, style["font"], style["size"])
+        x2 = x1 + text_width(segment, style["font"], style["size"])
+        c.line(x1, y, x2, y)
+
+
+def table_style(fonts: dict[str, str], layout_rules: dict[str, Any]) -> dict[str, Any]:
+    style = {
+        "font": fonts["body"],
+        "size": 13,
+        "leading": 20,
+        "space_before": 5,
+        "space_after": 8,
+        "cell_pad_x": 6,
+        "cell_pad_y": 5,
+        "border_color": "#777777",
+        "header_fill": "#e6e6e6",
+        "color": config_color(layout_rules, "body_text", "#222222"),
+    }
+    return apply_style_rule(style, layout_rules, "table")
+
+
+def table_row_heights(rows: list[list[str]], style: dict[str, Any], table_w: float) -> list[float]:
+    if not rows:
+        return []
+    col_count = max(len(row) for row in rows)
+    col_w = table_w / max(1, col_count)
+    heights: list[float] = []
+    for row in rows:
+        max_lines = 1
+        for cell in row:
+            lines = wrap_text(cell, style, col_w - style["cell_pad_x"] * 2)
+            max_lines = max(max_lines, len(lines))
+        heights.append(max(24, max_lines * style["leading"] + style["cell_pad_y"] * 2))
+    return heights
+
+
+def table_total_height(rows: list[list[str]], style: dict[str, Any], table_w: float) -> float:
+    return style["space_before"] + sum(table_row_heights(rows, style, table_w)) + style["space_after"]
+
+
+def draw_table_block(
+    c: canvas.Canvas,
+    block: dict[str, Any],
+    style: dict[str, Any],
+    frame: dict[str, float],
+    start_cursor: float,
+) -> float:
+    rows = table_rows(block)
+    x = frame["x"] + 8
+    w = frame["w"] - 16
+    cursor = start_cursor + style["space_before"]
+    y_top_pdf = c._pagesize[1] - cursor
+    col_count = max((len(row) for row in rows), default=1)
+    col_w = w / max(1, col_count)
+    heights = table_row_heights(rows, style, w)
+    c.setFont(style["font"], style["size"])
+    c.setFillColor(HexColor(style["color"]))
+    c.setStrokeColor(HexColor(style["border_color"]))
+    c.setLineWidth(0.45)
+    y = y_top_pdf
+    for row_index, row in enumerate(rows):
+        row_h = heights[row_index]
+        if row_index == 0:
+            c.setFillColor(HexColor(style["header_fill"]))
+            c.rect(x, y - row_h, w, row_h, fill=1, stroke=0)
+            c.setFillColor(HexColor(style["color"]))
+        for col_index in range(col_count):
+            cell_x = x + col_w * col_index
+            c.rect(cell_x, y - row_h, col_w, row_h, fill=0, stroke=1)
+            text = row[col_index] if col_index < len(row) else ""
+            lines = wrap_text(text, style, col_w - style["cell_pad_x"] * 2)
+            line_y = y - style["cell_pad_y"] - style["size"]
+            for line in lines:
+                c.drawString(cell_x + style["cell_pad_x"], line_y, line)
+                line_y -= style["leading"]
+        y -= row_h
+    return cursor + sum(heights) + style["space_after"]
 
 
 def paint_background(
@@ -767,8 +923,6 @@ def paint_template_shell(
         b = slot["bbox_pt"]
         x, y, w, h = b["x"], b["y"], b["w"], b["h"]
         if slot["role"] in ("side_strip", "side_strip_textframe"):
-            if background_mode == "white":
-                continue
             fill = slot.get("fill_rgb") or ("#ffd9ed" if spread["spread_index"] < 4 else "#cccccc")
             c.setFillColor(color_from_hex(fill, (.94, .86, .89)))
             c.rect(x, page_h - y - h, w, h, fill=1, stroke=0)
@@ -786,7 +940,7 @@ def paint_template_shell(
 def render_flow(
     c: canvas.Canvas,
     template: dict[str, Any],
-    paragraphs: list[str],
+    paragraphs: list[Any],
     frames: list[dict[str, Any]],
     background_dir: Path,
     page_w: float,
@@ -802,7 +956,7 @@ def render_flow(
     grouped = group_frames_by_spread(frames)
     frame_entries = list(grouped.items())
     paragraph_idx = 0
-    remainder: str | None = None
+    remainder: Any | None = None
     rendered_pages: list[dict[str, Any]] = []
     spread_slot = 0
     while paragraph_idx < len(paragraphs) or remainder is not None:
@@ -837,6 +991,18 @@ def render_flow(
             cursor = frame["y"] + 8
             while paragraph_idx < len(paragraphs):
                 text = remainder if remainder is not None else paragraphs[paragraph_idx]
+                if is_table_block(text):
+                    style = table_style(style_fonts, layout_rules)
+                    rows = table_rows(text)
+                    table_h = table_total_height(rows, style, frame["w"] - 16)
+                    y_bottom = frame["y"] + frame["h"] - 6
+                    if cursor + table_h > y_bottom:
+                        remainder = text
+                        break
+                    cursor = draw_table_block(c, text, style, frame, cursor)
+                    remainder = None
+                    paragraph_idx += 1
+                    continue
                 style = paragraph_style(text, paragraph_idx, is_answer, style_fonts, layout_rules)
                 lines, rest = fit_lines(text, style, frame, cursor)
                 if not lines and rest:
