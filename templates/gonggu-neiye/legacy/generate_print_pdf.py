@@ -16,16 +16,16 @@ import argparse
 import json
 import random
 import re
+from io import BytesIO
 from collections import OrderedDict
 from pathlib import Path
 from typing import Any
 
-import fitz
 from docx import Document
 from docx.table import Table
 from docx.text.paragraph import Paragraph
 from PIL import Image
-from pypdf import PdfReader
+from pypdf import PageObject, PdfReader, PdfWriter, Transformation
 from reportlab.lib.colors import CMYKColor, Color
 from reportlab.lib.utils import ImageReader
 from reportlab.pdfbase import pdfmetrics
@@ -53,6 +53,67 @@ STYLE_OVERRIDE_KEYS = {
     "first_line_indent",
     "left_indent",
 }
+DEFAULT_CONTENT_DETECTION = {
+    "section_title_patterns": [r"^【.+】$", r"^练习[一二三四五六七八九十]+$"],
+    "section_title_exclude": ["【答案】", "【解析】"],
+    "lesson_title_patterns": [r"^第[一二三四五六七八九十百]+讲$"],
+    "topic_heading_patterns": [r"^[一二三四五六七八九十]+、\S+"],
+    "reading_prompt_patterns": [r"^阅读.*(题|完成|回答|问题)"],
+    "structural_reading_prompt_exclude_patterns": [
+        r"^[1-9]\d*[.．、]",
+        r"^[A-E][.．]",
+        r"^（\d+）",
+    ],
+    "structural_reading_prompt_keywords": ["阅读", "选文", "短文", "文章", "完成", "回答"],
+    "article_title": {
+        "max_length": 12,
+        "reject_prefixes": ["【", "（", "(", "“", "《"],
+        "reject_patterns": [r"^[A-E][.．]", r"^[1-9]\d*[.．、]"],
+        "forbidden_punctuation_pattern": r"[，。！？；：、,.!?;:]",
+    },
+    "author_names": ["贾平凹"],
+    "source_patterns": [r"^（.*）$"],
+}
+DEFAULT_MARKERS = {
+    "question_patterns": [r"^([1-9]\d*)[.．、]\s*(.*)$"],
+    "option_patterns": [r"^([A-E])[.．]\s*(.*)$"],
+    "parenthesized_option_patterns": [r"^(（\d+）)\s*(.*)$"],
+    "judgement_patterns": [r"^（\d+）"],
+}
+DEFAULT_HANGING = {
+    "start_fields": ["marker_text", "badge_text"],
+    "end_kinds": [
+        "main_title",
+        "topic_heading",
+        "reading_prompt",
+        "article_title",
+        "author",
+        "section",
+        "source",
+        "answer_label",
+    ],
+    "inherit_kinds": ["body", "answer_body", "answer_line", "option", "question_numbered", "table", "image"],
+    "clear_first_line_indent_kinds": ["body", "answer_body", "answer_line"],
+}
+DEFAULT_NORMALIZATION = {
+    "answer_labels": {
+        "【答案】": "【答案】",
+        "答案：": "【答案】",
+        "答案:": "【答案】",
+        "【解析】": "【解析】",
+        "解析：": "【解析】",
+        "解析:": "【解析】",
+    }
+}
+DEFAULT_KEEP_WITH_NEXT_KINDS = [
+    "main_title",
+    "section",
+    "topic_heading",
+    "article_title",
+    "answer_label",
+    "source",
+    "question_numbered",
+]
 
 
 def load_optional_json(path: str | Path | None) -> dict[str, Any]:
@@ -66,6 +127,31 @@ def load_optional_json(path: str | Path | None) -> dict[str, Any]:
 
 def config_color(layout_rules: dict[str, Any], key: str, default: str) -> str:
     return layout_rules.get("colors", {}).get(key, default)
+
+
+def merged_rule_section(layout_rules: dict[str, Any] | None, key: str, defaults: dict[str, Any]) -> dict[str, Any]:
+    merged = dict(defaults)
+    override = (layout_rules or {}).get(key, {})
+    for item_key, item_value in override.items():
+        if isinstance(item_value, dict) and isinstance(merged.get(item_key), dict):
+            nested = dict(merged[item_key])
+            nested.update(item_value)
+            merged[item_key] = nested
+        else:
+            merged[item_key] = item_value
+    return merged
+
+
+def first_regex_match(patterns: list[str], text: str) -> re.Match[str] | None:
+    for pattern in patterns:
+        match = re.match(pattern, text)
+        if match:
+            return match
+    return None
+
+
+def matches_any(patterns: list[str], text: str) -> bool:
+    return first_regex_match(patterns, text) is not None
 
 
 def normalize_align(value: str) -> str:
@@ -88,24 +174,53 @@ def question_content_indent(layout_rules: dict[str, Any], fallback: float = 28) 
     return rule.get("left_indent", stem_rule.get("left_indent", fallback))
 
 
+def marker_indent(marker_text: str, size: float, min_indent: float = 22, gap: float = 4) -> float:
+    visual_width = 0.0
+    for char in marker_text:
+        visual_width += size * 0.5 if ord(char) < 128 else size
+    return max(min_indent, visual_width + gap)
+
+
+def starts_hanging_context(style: dict[str, Any], layout_rules: dict[str, Any] | None = None) -> bool:
+    hanging = merged_rule_section(layout_rules, "hanging", DEFAULT_HANGING)
+    return any(bool(style.get(field)) for field in hanging["start_fields"])
+
+
+def ends_hanging_context(style: dict[str, Any], layout_rules: dict[str, Any] | None = None) -> bool:
+    hanging = merged_rule_section(layout_rules, "hanging", DEFAULT_HANGING)
+    return style.get("kind") in set(hanging["end_kinds"])
+
+
+def can_inherit_hanging_context(style: dict[str, Any], layout_rules: dict[str, Any] | None = None) -> bool:
+    hanging = merged_rule_section(layout_rules, "hanging", DEFAULT_HANGING)
+    return style.get("kind") in set(hanging["inherit_kinds"])
+
+
+def apply_hanging_context_indent(
+    style: dict[str, Any],
+    inherited_indent: float | None,
+    layout_rules: dict[str, Any],
+) -> dict[str, Any]:
+    hanging = merged_rule_section(layout_rules, "hanging", DEFAULT_HANGING)
+    if inherited_indent is None or not can_inherit_hanging_context(style, layout_rules):
+        return style
+    next_style = dict(style)
+    next_style["left_indent"] = inherited_indent
+    if next_style.get("kind") in set(hanging["clear_first_line_indent_kinds"]):
+        next_style["first_line_indent"] = 0
+    return next_style
+
+
 def starts_new_question_context(style: dict[str, Any]) -> bool:
-    return style.get("kind") in {"question_numbered", "option"}
+    return starts_hanging_context(style)
 
 
 def ends_question_context(style: dict[str, Any]) -> bool:
-    return style.get("kind") in {
-        "main_title",
-        "reading_prompt",
-        "article_title",
-        "author",
-        "section",
-        "source",
-        "answer_label",
-    }
+    return ends_hanging_context(style)
 
 
 def can_inherit_question_context(style: dict[str, Any]) -> bool:
-    return style.get("kind") in {"body", "answer_line", "option", "question_numbered"}
+    return can_inherit_hanging_context(style)
 
 
 def apply_question_content_indent(
@@ -113,19 +228,19 @@ def apply_question_content_indent(
     inherited_indent: float | None,
     layout_rules: dict[str, Any],
 ) -> dict[str, Any]:
-    if inherited_indent is None or not can_inherit_question_context(style):
-        return style
-    next_style = dict(style)
-    next_style["left_indent"] = question_content_indent(layout_rules, inherited_indent)
-    if next_style.get("kind") in {"body", "answer_line"}:
-        next_style["first_line_indent"] = 0
-    return next_style
+    return apply_hanging_context_indent(style, inherited_indent, layout_rules)
+
+
+def frame_side(frame: dict[str, float], page_w: float) -> str:
+    return "right" if frame["x"] + frame["w"] / 2 >= page_w / 2 else "left"
 
 
 def make_remainder_block(rest: str, style: dict[str, Any]) -> dict[str, Any]:
     next_style = dict(style)
     next_style.pop("badge_text", None)
+    next_style.pop("marker_text", None)
     next_style["display_text"] = rest
+    next_style["first_line_indent"] = 0
     return {
         "type": "remainder",
         "text": rest,
@@ -133,32 +248,72 @@ def make_remainder_block(rest: str, style: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def is_reading_prompt(text: str) -> bool:
-    return text.startswith("阅读") and ("小题" in text or "下列小题" in text or "回答" in text)
+def is_reading_prompt(text: str, layout_rules: dict[str, Any] | None = None) -> bool:
+    detection = merged_rule_section(layout_rules, "content_detection", DEFAULT_CONTENT_DETECTION)
+    return matches_any(detection["reading_prompt_patterns"], text)
 
 
-def is_article_title_text(text: str) -> bool:
-    if not text or len(text) > 12:
+def is_section_title(text: str, layout_rules: dict[str, Any] | None = None) -> bool:
+    detection = merged_rule_section(layout_rules, "content_detection", DEFAULT_CONTENT_DETECTION)
+    if text in set(detection["section_title_exclude"]):
         return False
-    if text.startswith(("【", "（", "(", "“", "《")):
-        return False
-    if re.match(r"^[A-E][.．]", text):
-        return False
-    if re.match(r"^[1-9]\d*[.．、]", text):
-        return False
-    return not re.search(r"[，。！？；：、,.!?;:]", text)
+    return matches_any(detection["section_title_patterns"], text)
 
 
-def normalize_answer_label(text: str) -> str | None:
-    if text in {"【答案】", "答案：", "答案:"}:
-        return "【答案】"
-    if text in {"【解析】", "解析：", "解析:"}:
-        return "【解析】"
-    return None
+def is_lesson_title(text: str, layout_rules: dict[str, Any] | None = None) -> bool:
+    detection = merged_rule_section(layout_rules, "content_detection", DEFAULT_CONTENT_DETECTION)
+    return matches_any(detection["lesson_title_patterns"], text)
+
+
+def is_topic_heading(text: str, layout_rules: dict[str, Any] | None = None) -> bool:
+    detection = merged_rule_section(layout_rules, "content_detection", DEFAULT_CONTENT_DETECTION)
+    return matches_any(detection["topic_heading_patterns"], text)
+
+
+def can_be_structural_reading_prompt(text: str, layout_rules: dict[str, Any] | None = None) -> bool:
+    detection = merged_rule_section(layout_rules, "content_detection", DEFAULT_CONTENT_DETECTION)
+    if not text:
+        return False
+    if matches_any(detection["structural_reading_prompt_exclude_patterns"], text):
+        return False
+    if is_section_title(text, layout_rules):
+        return False
+    return is_reading_prompt(text, layout_rules) or any(
+        keyword in text for keyword in detection["structural_reading_prompt_keywords"]
+    )
+
+
+def section_display_text(text: str) -> str:
+    return text if text.startswith("【") and text.endswith("】") else f"【{text}】"
+
+
+def is_article_title_text(text: str, layout_rules: dict[str, Any] | None = None) -> bool:
+    detection = merged_rule_section(layout_rules, "content_detection", DEFAULT_CONTENT_DETECTION)
+    rule = detection["article_title"]
+    if not text or len(text) > rule["max_length"]:
+        return False
+    if text.startswith(tuple(rule["reject_prefixes"])):
+        return False
+    if matches_any(rule["reject_patterns"], text):
+        return False
+    return not re.search(rule["forbidden_punctuation_pattern"], text)
+
+
+def normalize_answer_label(text: str, layout_rules: dict[str, Any] | None = None) -> str | None:
+    normalization = merged_rule_section(layout_rules, "normalization", DEFAULT_NORMALIZATION)
+    return normalization["answer_labels"].get(text)
 
 
 def clean_text(text: str) -> str:
     return re.sub(r"[\r\n\t]+", " ", text).strip()
+
+
+def normalize_answer_parentheses(text: str) -> str:
+    return re.sub(
+        r"[ \u00a0]*([（(])[ \u00a0]*([）)])\s*$",
+        lambda match: f" {match.group(1)}{chr(0x2007) * 7}{match.group(2)}",
+        text,
+    )
 
 
 def is_underlined_blank_paragraph(paragraph: Any) -> bool:
@@ -204,8 +359,70 @@ def is_table_block(block: Any) -> bool:
     return isinstance(block, dict) and block.get("type") == "table"
 
 
+def is_image_block(block: Any) -> bool:
+    return isinstance(block, dict) and block.get("type") == "image"
+
+
 def table_rows(block: dict[str, Any]) -> list[list[str]]:
     return block.get("rows", [])
+
+
+def paragraph_image_blocks(paragraph: Paragraph) -> list[dict[str, Any]]:
+    blocks: list[dict[str, Any]] = []
+    rel_attr = "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}embed"
+    for node in paragraph._p.iter():
+        if not node.tag.endswith("}blip"):
+            continue
+        rel_id = node.get(rel_attr)
+        if not rel_id:
+            continue
+        part = paragraph.part.related_parts.get(rel_id)
+        if part is None:
+            continue
+        blob = part.blob
+        try:
+            image = Image.open(BytesIO(blob))
+            width_px, height_px = image.size
+        except Exception:
+            width_px, height_px = 0, 0
+        blocks.append({
+            "type": "image",
+            "blob": blob,
+            "content_type": getattr(part, "content_type", ""),
+            "width_px": width_px,
+            "height_px": height_px,
+        })
+    return blocks
+
+
+def normalize_bare_answer_items(blocks: list[Any]) -> list[Any]:
+    normalized: list[Any] = []
+    in_answer_block = False
+    auto_number = 1
+    auto_numbering_active = False
+    for block in blocks:
+        text = block_text(block)
+        if text == "【答案】":
+            in_answer_block = True
+            auto_number = 1
+            auto_numbering_active = True
+            normalized.append(block)
+            continue
+        if text == "【解析】":
+            in_answer_block = False
+            auto_numbering_active = False
+            normalized.append(block)
+            continue
+        if in_answer_block and re.match(r"^[1-9]\d*[.．、]", text):
+            auto_numbering_active = False
+            normalized.append(block)
+            continue
+        if in_answer_block and auto_numbering_active and isinstance(block, str) and text:
+            normalized.append(f"{auto_number}.{text}")
+            auto_number += 1
+            continue
+        normalized.append(block)
+    return normalized
 
 
 def load_docx_paragraphs(docx_path: Path) -> list[Any]:
@@ -217,14 +434,18 @@ def load_docx_paragraphs(docx_path: Path) -> list[Any]:
             if is_underlined_blank_paragraph(p):
                 blocks.append(ANSWER_LINE_SENTINEL)
                 continue
+            image_blocks = paragraph_image_blocks(p)
             text = clean_text(p.text)
             if not text:
+                blocks.extend(image_blocks)
                 continue
+            text = normalize_answer_parentheses(text)
             underline_ranges = paragraph_underline_ranges(p)
             if underline_ranges:
                 blocks.append({"type": "paragraph", "text": text, "underline_ranges": underline_ranges})
             else:
                 blocks.append(text)
+            blocks.extend(image_blocks)
         elif child.tag.endswith("}tbl"):
             table = Table(child, doc)
             rows = [
@@ -233,7 +454,7 @@ def load_docx_paragraphs(docx_path: Path) -> list[Any]:
             ]
             if rows:
                 blocks.append({"type": "table", "rows": rows})
-    return blocks
+    return normalize_bare_answer_items(blocks)
 
 
 def split_practice_and_answers(paragraphs: list[Any]) -> tuple[list[Any], list[Any]]:
@@ -287,6 +508,25 @@ def story_frames(template: dict[str, Any], role: str) -> list[dict[str, Any]]:
     return next((seq["frames"] for seq in template["flow_sequences"] if seq["role"] == role), [])
 
 
+def normalize_flow_frames(
+    frames: list[dict[str, Any]],
+    role: str,
+    layout_rules: dict[str, Any],
+) -> list[dict[str, Any]]:
+    min_heights = layout_rules.get("page_flow", {}).get("min_frame_height_pt", {})
+    min_height = min_heights.get(role)
+    if not min_height:
+        return frames
+    normalized: list[dict[str, Any]] = []
+    for frame in frames:
+        next_frame = dict(frame)
+        next_bbox = dict(frame["bbox_pt"])
+        next_bbox["h"] = max(next_bbox["h"], min_height)
+        next_frame["bbox_pt"] = next_bbox
+        normalized.append(next_frame)
+    return normalized
+
+
 def group_frames_by_spread(frames: list[dict[str, Any]]) -> OrderedDict[int, list[dict[str, Any]]]:
     grouped: OrderedDict[int, list[dict[str, Any]]] = OrderedDict()
     for frame in frames:
@@ -312,6 +552,18 @@ def _rgb_from_hex(hex_value: str | None, fallback: tuple[float, float, float]) -
         return fallback
 
 
+def _parse_cmyk(value: str | None) -> tuple[float, float, float, float] | None:
+    if not value:
+        return None
+    match = re.match(r"^cmyk\(\s*([0-9.]+)\s*,\s*([0-9.]+)\s*,\s*([0-9.]+)\s*,\s*([0-9.]+)\s*\)$", value.strip(), re.I)
+    if not match:
+        return None
+    numbers = [float(part) for part in match.groups()]
+    if any(number > 1 for number in numbers):
+        numbers = [number / 100 for number in numbers]
+    return tuple(max(0, min(1, number)) for number in numbers)  # type: ignore[return-value]
+
+
 def _cmyk_from_rgb(r: float, g: float, b: float) -> CMYKColor:
     if abs(r - g) < 1e-6 and abs(g - b) < 1e-6:
         return CMYKColor(0, 0, 0, max(0, min(1, 1 - r)))
@@ -329,6 +581,12 @@ def color_from_hex(
     fallback: tuple[float, float, float],
     color_mode: str = "rgb",
 ) -> Color:
+    cmyk = _parse_cmyk(hex_value)
+    if cmyk:
+        c, m, y, k = cmyk
+        if color_mode == "cmyk":
+            return CMYKColor(c, m, y, k)
+        return Color((1 - c) * (1 - k), (1 - m) * (1 - k), (1 - y) * (1 - k))
     r, g, b = _rgb_from_hex(hex_value, fallback)
     if color_mode == "cmyk":
         return _cmyk_from_rgb(r, g, b)
@@ -578,6 +836,7 @@ def paragraph_style(
     is_answer: bool,
     fonts: dict[str, str],
     layout_rules: dict[str, Any] | None = None,
+    force_reading_prompt: bool = False,
 ) -> dict[str, Any]:
     layout_rules = layout_rules or {}
     underline_ranges = text.get("underline_ranges", []) if isinstance(text, dict) else []
@@ -586,8 +845,12 @@ def paragraph_style(
     yan_bold = fonts.get("title_bold", fonts["title"])
     yan_regular = fonts.get("question", fonts["title"])
     kai = fonts["body"]
-    question_match = re.match(r"^([1-9]\d*)[.．、]\s*(.*)$", text)
-    option_match = re.match(r"^([A-D])[.．]\s*(.*)$", text)
+    markers = merged_rule_section(layout_rules, "markers", DEFAULT_MARKERS)
+    detection = merged_rule_section(layout_rules, "content_detection", DEFAULT_CONTENT_DETECTION)
+    question_match = first_regex_match(markers["question_patterns"], text)
+    option_match = first_regex_match(markers["option_patterns"], text)
+    parenthesized_option_match = first_regex_match(markers["parenthesized_option_patterns"], text)
+    judgement_match = first_regex_match(markers["judgement_patterns"], text)
     if text == ANSWER_LINE_SENTINEL:
         return apply_style_rule({
             "kind": "answer_line",
@@ -601,76 +864,7 @@ def paragraph_style(
             "first_line_indent": 0,
             "bar": False,
         }, layout_rules, "answer_line")
-    if pos == 0 or (is_answer and text == "参考答案与解析"):
-        return apply_style_rule({
-            "kind": "main_title",
-            "font": yan_mid,
-            "size": 23,
-            "leading": 34,
-            "align": "left",
-            "color": config_color(layout_rules, "body_text", "#222222"),
-            "space_before": 0,
-            "space_after": 16,
-            "first_line_indent": 0,
-            "bar": False,
-            "title_marker": True,
-            "title_marker_asset": "参考答案" if is_answer else "标题角标",
-        }, layout_rules, "main_title")
-    if not is_answer and is_reading_prompt(text):
-        return apply_style_rule({
-            "kind": "reading_prompt",
-            "font": yan_mid,
-            "size": 14,
-            "leading": 24,
-            "align": "left",
-            "color": config_color(layout_rules, "practice_red", "#cc0000"),
-            "space_before": 4,
-            "space_after": 10,
-            "first_line_indent": 0,
-            "bar": False,
-        }, layout_rules, "reading_prompt")
-    if text == "贾平凹":
-        return apply_style_rule({
-            "kind": "author",
-            "font": kai,
-            "size": 14,
-            "leading": 20,
-            "align": "center",
-            "color": config_color(layout_rules, "author_text", "#333333"),
-            "space_before": 0,
-            "space_after": 5,
-            "first_line_indent": 0,
-            "bar": False,
-        }, layout_rules, "author")
-    if not is_answer and (pos == 3 or is_article_title_text(text)):
-        return apply_style_rule({
-            "kind": "article_title",
-            "font": yan_mid,
-            "size": 14,
-            "leading": 24,
-            "align": "center",
-            "color": config_color(layout_rules, "body_text", "#222222"),
-            "space_before": 0,
-            "space_after": 4,
-            "first_line_indent": 0,
-            "bar": False,
-        }, layout_rules, "article_title")
-    answer_label_text = normalize_answer_label(text) if is_answer else None
-    if answer_label_text:
-        return apply_style_rule({
-            "kind": "answer_label",
-            "font": yan_mid,
-            "size": 14,
-            "leading": 23,
-            "align": "left",
-            "color": "#111111",
-            "space_before": 5,
-            "space_after": 2,
-            "first_line_indent": 0,
-            "bar": False,
-            "display_text": answer_label_text,
-        }, layout_rules, "answer_label")
-    if text.startswith("【") and text.endswith("】"):
+    if is_section_title(text, layout_rules):
         return apply_style_rule({
             "kind": "section",
             "font": yan_bold,
@@ -685,7 +879,90 @@ def paragraph_style(
             "bar_color": config_color(layout_rules, "answer_gray", "#898989")
             if is_answer
             else config_color(layout_rules, "practice_bar", "#fce5e4"),
+            "display_text": section_display_text(text),
         }, layout_rules, "section_title")
+    if pos == 0 or is_lesson_title(text, layout_rules) or (is_answer and text == "参考答案与解析"):
+        return apply_style_rule({
+            "kind": "main_title",
+            "font": yan_mid,
+            "size": 23,
+            "leading": 34,
+            "align": "left",
+            "color": config_color(layout_rules, "body_text", "#222222"),
+            "space_before": 0,
+            "space_after": 16,
+            "first_line_indent": 0,
+            "bar": False,
+            "title_marker": True,
+            "title_marker_asset": "参考答案" if is_answer else "标题角标",
+        }, layout_rules, "main_title")
+    if is_topic_heading(text, layout_rules):
+        return apply_style_rule({
+            "kind": "topic_heading",
+            "font": yan_mid,
+            "size": 14,
+            "leading": 24,
+            "align": "left",
+            "color": config_color(layout_rules, "body_text", "#222222"),
+            "space_before": 6,
+            "space_after": 4,
+            "first_line_indent": 0,
+            "bar": False,
+        }, layout_rules, "topic_heading")
+    if not is_answer and (force_reading_prompt or is_reading_prompt(text, layout_rules)):
+        return apply_style_rule({
+            "kind": "reading_prompt",
+            "font": yan_mid,
+            "size": 14,
+            "leading": 24,
+            "align": "left",
+            "color": config_color(layout_rules, "practice_red", "#cc0000"),
+            "space_before": 4,
+            "space_after": 10,
+            "first_line_indent": 0,
+            "bar": False,
+        }, layout_rules, "reading_prompt")
+    if text in set(detection["author_names"]):
+        return apply_style_rule({
+            "kind": "author",
+            "font": kai,
+            "size": 14,
+            "leading": 20,
+            "align": "center",
+            "color": config_color(layout_rules, "author_text", "#333333"),
+            "space_before": 0,
+            "space_after": 5,
+            "first_line_indent": 0,
+            "bar": False,
+        }, layout_rules, "author")
+    if not is_answer and is_article_title_text(text, layout_rules):
+        return apply_style_rule({
+            "kind": "article_title",
+            "font": yan_mid,
+            "size": 14,
+            "leading": 24,
+            "align": "center",
+            "color": config_color(layout_rules, "body_text", "#222222"),
+            "space_before": 0,
+            "space_after": 4,
+            "first_line_indent": 0,
+            "bar": False,
+        }, layout_rules, "article_title")
+    answer_label_text = normalize_answer_label(text, layout_rules) if is_answer else None
+    if answer_label_text:
+        return apply_style_rule({
+            "kind": "answer_label",
+            "font": yan_mid,
+            "size": 14,
+            "leading": 23,
+            "align": "left",
+            "color": "#111111",
+            "space_before": 5,
+            "space_after": 2,
+            "first_line_indent": 0,
+            "bar": False,
+            "display_text": answer_label_text,
+        }, layout_rules, "answer_label")
     if question_match and not is_answer:
         number, body = question_match.groups()
         return apply_style_rule({
@@ -693,18 +970,20 @@ def paragraph_style(
             "font": yan_regular,
             "size": 14,
             "leading": 27,
-            "align": "justify",
+            "align": "left",
             "color": config_color(layout_rules, "body_text", "#222222"),
-            "space_before": 7,
+            "space_before": 0,
             "space_after": 2,
             "first_line_indent": 0,
             "bar": False,
             "display_text": body,
             "badge_text": number,
             "badge_color": config_color(layout_rules, "practice_red", "#cc0000"),
-            "left_indent": 28,
+            "left_indent": 36,
+            "wrap_width_factor": 0.84,
         }, layout_rules, "question_stem")
     if question_match and is_answer:
+        number, body = question_match.groups()
         return apply_style_rule({
             "kind": "answer_body",
             "font": kai,
@@ -712,26 +991,66 @@ def paragraph_style(
             "leading": 23,
             "align": "left",
             "color": config_color(layout_rules, "body_text", "#222222"),
-            "space_before": 1,
+            "space_before": 0,
             "space_after": 3,
             "first_line_indent": 0,
             "bar": False,
+            "display_text": body,
+            "marker_text": f"{number}.",
+            "left_indent": 22,
         }, layout_rules, "answer_body")
     if option_match:
+        marker, body = option_match.groups()
         return apply_style_rule({
             "kind": "option",
             "font": kai,
             "size": 14,
             "leading": 27,
-            "align": "justify",
+            "align": "left",
             "color": config_color(layout_rules, "body_text", "#222222"),
             "space_before": 1,
             "space_after": 1,
             "first_line_indent": 0,
             "bar": False,
-            "left_indent": 28,
+            "display_text": f"{marker}. {body}",
+            "marker_text": f"{marker}.",
+            "inline_marker": True,
+            "left_indent": 36,
+            "wrap_width_factor": 0.84,
         }, layout_rules, "option")
-    if text.startswith("（") and text.endswith("）"):
+    if parenthesized_option_match:
+        marker, body = parenthesized_option_match.groups()
+        return apply_style_rule({
+            "kind": "option",
+            "font": kai,
+            "size": 14,
+            "leading": 27,
+            "align": "left",
+            "color": config_color(layout_rules, "body_text", "#222222"),
+            "space_before": 1,
+            "space_after": 1,
+            "first_line_indent": 0,
+            "bar": False,
+            "display_text": f"{marker} {body}",
+            "marker_text": marker,
+            "inline_marker": True,
+            "left_indent": 36,
+            "wrap_width_factor": 0.84,
+        }, layout_rules, "option")
+    if not is_answer and judgement_match:
+        return apply_style_rule({
+            "kind": "judgement_item",
+            "font": kai,
+            "size": 14,
+            "leading": 27,
+            "align": "left",
+            "color": config_color(layout_rules, "body_text", "#222222"),
+            "space_before": 1,
+            "space_after": 1,
+            "first_line_indent": 0,
+            "bar": False,
+        }, layout_rules, "judgement_item")
+    if matches_any(detection["source_patterns"], text):
         return apply_style_rule({
             "kind": "source",
             "font": yan_mid,
@@ -739,8 +1058,8 @@ def paragraph_style(
             "leading": 20,
             "align": "left",
             "color": config_color(layout_rules, "source_text", "#898989"),
-            "space_before": 4,
-            "space_after": 5,
+            "space_before": 1,
+            "space_after": 0,
             "first_line_indent": 0,
             "bar": False,
         }, layout_rules, "source")
@@ -769,11 +1088,21 @@ def wrap_text(text: str, style: dict[str, Any], max_w: float) -> list[str]:
     lines: list[str] = []
     cur = ""
     for ch in text:
+        if ch == "\u2007":
+            ch = " "
         if not cur and lines and ch in FORBIDDEN_LINE_START:
             lines[-1] += ch
             continue
         test = cur + ch
         if cur and text_width(test, font, size) > max_w:
+            trailing_answer_match = re.search(r"\s+[（(]\s*$", cur)
+            if trailing_answer_match:
+                prefix = cur[:trailing_answer_match.start()]
+                suffix = cur[trailing_answer_match.start():] + ch
+                if prefix:
+                    lines.append(prefix)
+                cur = suffix
+                continue
             if ch in FORBIDDEN_LINE_START:
                 lines.append(test)
                 cur = ""
@@ -787,7 +1116,77 @@ def wrap_text(text: str, style: dict[str, Any], max_w: float) -> list[str]:
             cur = test
     if cur:
         lines.append(cur)
+    lines = avoid_isolated_answer_parentheses(lines)
+    lines = rebalance_short_final_line(lines, style, max_w)
+    lines = repair_forbidden_line_starts(lines)
     return lines or [""]
+
+
+def avoid_isolated_answer_parentheses(lines: list[str]) -> list[str]:
+    if len(lines) < 2 or not re.match(r"^\s*[（(]\s+[）)]\s*$", lines[-1]):
+        return lines
+    previous = lines[-2].rstrip()
+    if not previous:
+        return lines
+    move_count = min(len(previous), 4)
+    moved = previous[-move_count:]
+    lines[-2] = previous[:-move_count]
+    lines[-1] = f"{moved}{lines[-1]}"
+    if not lines[-2]:
+        lines.pop(-2)
+    return lines
+
+
+def rebalance_short_final_line(lines: list[str], style: dict[str, Any], max_w: float) -> list[str]:
+    if len(lines) < 2 or max_w <= 0:
+        return lines
+    font = style["font"]
+    size = style["size"]
+    last = lines[-1]
+    if not last.strip() or re.match(r"^\s*[（(]\s+[）)]\s*$", last):
+        return lines
+    target_w = min(120, max(84, max_w * 0.30))
+    if text_width(last, font, size) >= target_w:
+        return lines
+    prev = lines[-2].rstrip()
+    if len(prev) <= 4:
+        return lines
+    min_prev_w = max_w * 0.72
+    while text_width(last, font, size) < target_w and len(prev) > 4:
+        moved = prev[-1]
+        if moved in FORBIDDEN_LINE_START:
+            break
+        candidate_prev = prev[:-1].rstrip()
+        candidate_last = moved + last
+        if text_width(candidate_last, font, size) > max_w:
+            break
+        if text_width(candidate_prev, font, size) < min_prev_w:
+            break
+        prev = candidate_prev
+        last = candidate_last
+    while prev and prev[-1] in FORBIDDEN_LINE_END and len(prev) > 1:
+        candidate_prev = prev[:-1].rstrip()
+        candidate_last = prev[-1] + last
+        if text_width(candidate_last, font, size) > max_w:
+            break
+        prev = candidate_prev
+        last = candidate_last
+    lines[-2] = prev
+    lines[-1] = last
+    return lines
+
+
+def repair_forbidden_line_starts(lines: list[str]) -> list[str]:
+    if len(lines) < 2:
+        return lines
+    repaired = list(lines)
+    for index in range(1, len(repaired)):
+        while repaired[index] and repaired[index][0] in FORBIDDEN_LINE_START:
+            repaired[index - 1] += repaired[index][0]
+            repaired[index] = repaired[index][1:]
+        if repaired[index] == "":
+            repaired[index] = ""
+    return [line for line in repaired if line != ""]
 
 
 def wrap_text_by_widths(text: str, style: dict[str, Any], widths: list[float]) -> list[str]:
@@ -819,7 +1218,7 @@ def fit_lines(
         if cursor + style["leading"] > y_bottom:
             return [], text_value
         return [""], ""
-    base_w = frame["w"] - 16 - style.get("left_indent", 0)
+    base_w = (frame["w"] - 16 - style.get("left_indent", 0)) * style.get("wrap_width_factor", 1)
     if style.get("first_line_indent"):
         lines = wrap_text_by_widths(style.get("display_text", text_value), style, [base_w - style["first_line_indent"], base_w])
     else:
@@ -838,6 +1237,19 @@ def fit_lines(
             cursor += style["leading"]
             fit.append(line)
     return fit, "".join(rest)
+
+
+def min_block_height_for_keep(style: dict[str, Any]) -> float:
+    height = style.get("space_before", 0) + style.get("leading", 0) + style.get("space_after", 0)
+    if style.get("bar"):
+        height += 2
+    return height
+
+
+def should_keep_with_next(style: dict[str, Any], layout_rules: dict[str, Any] | None = None) -> bool:
+    page_flow = (layout_rules or {}).get("page_flow", {})
+    keep_kinds = page_flow.get("keep_with_next_kinds", DEFAULT_KEEP_WITH_NEXT_KINDS)
+    return style.get("kind") in set(keep_kinds)
 
 
 def line_x_offset(style: dict[str, Any], first_line: bool) -> float:
@@ -903,6 +1315,10 @@ def draw_paragraph_lines(
             draw_number_badge_svg(c, bx, cursor - 12, style["badge_text"], style["font"], svg_assets, color_mode)
             c.setFont(style["font"], style["size"])
             c.setFillColor(color_from_hex(style["color"], (.13, .13, .13), color_mode))
+        if first_line and style.get("marker_text") and not style.get("inline_marker"):
+            marker_gap = style.get("marker_gap", 4)
+            marker_right = x + 8 + max(0, style.get("left_indent", 0) - marker_gap)
+            c.drawRightString(marker_right, c._pagesize[1] - cursor, style["marker_text"])
         if first_line and style.get("bold_rule"):
             c.setStrokeColor(color_from_hex("#cccccc", (.8, .8, .8), color_mode))
             c.setLineWidth(0.4)
@@ -916,6 +1332,12 @@ def draw_paragraph_lines(
         if should_justify:
             line_width = text_width(line, style["font"], style["size"])
             extra = max(0, (available_w - line_width) / (len(line) - 1))
+            if extra > style["size"] * 0.7:
+                c.drawString(tx, c._pagesize[1] - cursor, line)
+                draw_underlines_for_line(c, line, text_offset, tx, cursor, style, color_mode)
+                text_offset += len(line)
+                first_line = False
+                continue
             text_obj = c.beginText(tx, c._pagesize[1] - cursor)
             text_obj.setFont(style["font"], style["size"])
             text_obj.setFillColor(color_from_hex(style["color"], (.13, .13, .13), color_mode))
@@ -962,6 +1384,7 @@ def draw_underlines_for_line(
 
 def table_style(fonts: dict[str, str], layout_rules: dict[str, Any]) -> dict[str, Any]:
     style = {
+        "kind": "table",
         "font": fonts["body"],
         "size": 13,
         "leading": 20,
@@ -974,6 +1397,54 @@ def table_style(fonts: dict[str, str], layout_rules: dict[str, Any]) -> dict[str
         "color": config_color(layout_rules, "body_text", "#222222"),
     }
     return apply_style_rule(style, layout_rules, "table")
+
+
+def image_style(fonts: dict[str, str], layout_rules: dict[str, Any]) -> dict[str, Any]:
+    style = {
+        "kind": "image",
+        "space_before": 8,
+        "space_after": 10,
+        "left_indent": 0,
+    }
+    return apply_style_rule(style, layout_rules, "image")
+
+
+def image_scaled_size(block: dict[str, Any], available_w: float, max_h: float | None = None) -> tuple[float, float]:
+    width_px = max(1, block.get("width_px") or 1)
+    height_px = max(1, block.get("height_px") or 1)
+    scale = available_w / width_px
+    width = available_w
+    height = height_px * scale
+    if max_h is not None and height > max_h:
+        scale = max_h / height_px
+        width = width_px * scale
+        height = max_h
+    return width, height
+
+
+def image_total_height(block: dict[str, Any], style: dict[str, Any], frame_w: float) -> float:
+    available_w = frame_w - 16 - style.get("left_indent", 0)
+    _, height = image_scaled_size(block, available_w)
+    return style["space_before"] + height + style["space_after"]
+
+
+def draw_image_block(
+    c: canvas.Canvas,
+    block: dict[str, Any],
+    style: dict[str, Any],
+    frame: dict[str, float],
+    start_cursor: float,
+) -> float:
+    left_indent = style.get("left_indent", 0)
+    available_w = frame["w"] - 16 - left_indent
+    y_bottom = frame["y"] + frame["h"] - 6
+    cursor = start_cursor + style["space_before"]
+    max_h = max(12, y_bottom - cursor - style["space_after"])
+    draw_w, draw_h = image_scaled_size(block, available_w, max_h=max_h)
+    x = frame["x"] + 8 + left_indent + (available_w - draw_w) / 2
+    y = c._pagesize[1] - cursor - draw_h
+    c.drawImage(ImageReader(BytesIO(block["blob"])), x, y, width=draw_w, height=draw_h, preserveAspectRatio=True, mask="auto")
+    return cursor + draw_h + style["space_after"]
 
 
 def table_row_heights(rows: list[list[str]], style: dict[str, Any], table_w: float) -> list[float]:
@@ -1069,6 +1540,8 @@ def paint_template_shell(
         b = slot["bbox_pt"]
         x, y, w, h = b["x"], b["y"], b["w"], b["h"]
         if slot["role"] in ("side_strip", "side_strip_textframe"):
+            if spread["spread_index"] >= 4:
+                continue
             fill = (
                 config_color(layout_rules, "practice_bar", "#fce5e4")
                 if spread["spread_index"] < 4
@@ -1110,7 +1583,7 @@ def render_flow(
     remainder: Any | None = None
     rendered_pages: list[dict[str, Any]] = []
     spread_slot = 0
-    inherited_question_indent: float | None = None
+    inherited_hanging_indent: float | None = None
     while paragraph_idx < len(paragraphs) or remainder is not None:
         if not frame_entries:
             break
@@ -1140,16 +1613,29 @@ def render_flow(
         )
         page_started_at = paragraph_idx
         remainder_started_at = remainder
+        used_sides: set[str] = set()
         for frame_ref in frame_list:
             frame = frame_ref["bbox_pt"]
+            side = frame_side(frame, page_w)
             cursor = frame["y"] + 8
             while paragraph_idx < len(paragraphs):
                 text = remainder if remainder is not None else paragraphs[paragraph_idx]
+                if is_image_block(text):
+                    style = image_style(style_fonts, layout_rules)
+                    style = apply_hanging_context_indent(style, inherited_hanging_indent, layout_rules)
+                    image_h = image_total_height(text, style, frame["w"])
+                    y_bottom = frame["y"] + frame["h"] - 6
+                    if cursor + image_h > y_bottom and cursor > frame["y"] + 12:
+                        remainder = text
+                        break
+                    cursor = draw_image_block(c, text, style, frame, cursor)
+                    used_sides.add(side)
+                    remainder = None
+                    paragraph_idx += 1
+                    continue
                 if is_table_block(text):
                     style = table_style(style_fonts, layout_rules)
-                    if inherited_question_indent is not None:
-                        style = dict(style)
-                        style["left_indent"] = question_content_indent(layout_rules, inherited_question_indent)
+                    style = apply_hanging_context_indent(style, inherited_hanging_indent, layout_rules)
                     rows = table_rows(text)
                     table_h = table_total_height(rows, style, frame["w"] - 16 - style.get("left_indent", 0))
                     y_bottom = frame["y"] + frame["h"] - 6
@@ -1157,18 +1643,62 @@ def render_flow(
                         remainder = text
                         break
                     cursor = draw_table_block(c, text, style, frame, cursor, color_mode)
+                    used_sides.add(side)
                     remainder = None
                     paragraph_idx += 1
                     continue
                 if is_remainder_block(text):
                     style = remainder_style(text)
                 else:
-                    style = paragraph_style(text, paragraph_idx, is_answer, style_fonts, layout_rules)
-                    if not is_answer and ends_question_context(style):
-                        inherited_question_indent = None
-                    style = apply_question_content_indent(style, inherited_question_indent, layout_rules)
-                if not is_answer and starts_new_question_context(style):
-                    inherited_question_indent = style.get("left_indent", question_content_indent(layout_rules))
+                    previous_text = block_text(paragraphs[paragraph_idx - 1]) if paragraph_idx > 0 else ""
+                    force_reading_prompt = (
+                        not is_answer
+                        and is_section_title(previous_text, layout_rules)
+                        and can_be_structural_reading_prompt(block_text(text), layout_rules)
+                    )
+                    style = paragraph_style(
+                        text,
+                        paragraph_idx,
+                        is_answer,
+                        style_fonts,
+                        layout_rules,
+                        force_reading_prompt=force_reading_prompt,
+                    )
+                    if ends_hanging_context(style, layout_rules):
+                        inherited_hanging_indent = None
+                    if not starts_hanging_context(style, layout_rules):
+                        style = apply_hanging_context_indent(style, inherited_hanging_indent, layout_rules)
+                if starts_hanging_context(style, layout_rules):
+                    inherited_hanging_indent = style.get("left_indent", question_content_indent(layout_rules))
+                if (
+                    remainder is None
+                    and should_keep_with_next(style, layout_rules)
+                    and paragraph_idx + 1 < len(paragraphs)
+                ):
+                    next_text = paragraphs[paragraph_idx + 1]
+                    if is_table_block(next_text):
+                        next_style = table_style(style_fonts, layout_rules)
+                        next_style = apply_hanging_context_indent(next_style, inherited_hanging_indent, layout_rules)
+                        next_h = table_total_height(table_rows(next_text), next_style, frame["w"] - 16 - next_style.get("left_indent", 0))
+                    elif is_image_block(next_text):
+                        next_style = image_style(style_fonts, layout_rules)
+                        next_style = apply_hanging_context_indent(next_style, inherited_hanging_indent, layout_rules)
+                        next_h = image_total_height(next_text, next_style, frame["w"])
+                    else:
+                        next_style = paragraph_style(
+                            next_text,
+                            paragraph_idx + 1,
+                            is_answer,
+                            style_fonts,
+                            layout_rules,
+                        )
+                        if not starts_hanging_context(next_style, layout_rules):
+                            next_style = apply_hanging_context_indent(next_style, inherited_hanging_indent, layout_rules)
+                        next_h = min_block_height_for_keep(next_style)
+                    y_bottom = frame["y"] + frame["h"] - 6
+                    if cursor + min_block_height_for_keep(style) + next_h > y_bottom and cursor > frame["y"] + 12:
+                        remainder = text
+                        break
                 lines, rest = fit_lines(text, style, frame, cursor)
                 if not lines and rest:
                     remainder = text
@@ -1183,6 +1713,8 @@ def render_flow(
                     has_rest=bool(rest),
                     color_mode=color_mode,
                 )
+                if lines:
+                    used_sides.add(side)
                 if rest:
                     remainder = make_remainder_block(rest, style)
                     break
@@ -1196,6 +1728,7 @@ def render_flow(
                 "paragraph_start": page_started_at,
                 "paragraph_end": paragraph_idx,
                 "remaining_fragment": bool(remainder),
+                "used_sides": sorted(used_sides, key=lambda value: 0 if value == "left" else 1),
             }
         )
         if paragraph_idx == page_started_at and remainder == remainder_started_at:
@@ -1213,6 +1746,13 @@ def render_flow(
 
 
 def render_preview(pdf_path: Path, preview_path: Path) -> None:
+    try:
+        import fitz  # type: ignore[import-not-found]
+    except ModuleNotFoundError:
+        page_count = len(PdfReader(str(pdf_path)).pages)
+        sheet = Image.new("RGB", (900, 180), "white")
+        sheet.save(preview_path, quality=95)
+        return
     pdf = fitz.open(str(pdf_path))
     images = []
     for page in pdf:
@@ -1250,22 +1790,54 @@ def split_spread_pdf_to_single_pages(
     output_pdf_path: Path,
     single_page_w: float,
     single_page_h: float,
+    used_sides_by_spread_page: list[list[str]] | None = None,
+    renumber_pages: bool = True,
 ) -> None:
-    source = fitz.open(str(spread_pdf_path))
-    target = fitz.open()
-    for page in source:
-        for offset in (0, single_page_w):
-            target_page = target.new_page(width=single_page_w, height=single_page_h)
-            clip = fitz.Rect(offset, 0, offset + single_page_w, single_page_h)
-            target_page.show_pdf_page(
-                fitz.Rect(0, 0, single_page_w, single_page_h),
-                source,
-                page.number,
-                clip=clip,
-            )
-    target.save(str(output_pdf_path))
-    target.close()
-    source.close()
+    reader = PdfReader(str(spread_pdf_path))
+    writer = PdfWriter()
+    output_page_no = 1
+    for spread_page_index, page in enumerate(reader.pages):
+        used_sides = (
+            used_sides_by_spread_page[spread_page_index]
+            if used_sides_by_spread_page and spread_page_index < len(used_sides_by_spread_page)
+            else ["left", "right"]
+        )
+        for side in used_sides:
+            offset = 0 if side == "left" else single_page_w
+            single_page = PageObject.create_blank_page(width=single_page_w, height=single_page_h)
+            single_page.merge_transformed_page(page, Transformation().translate(tx=-offset, ty=0))
+            if renumber_pages:
+                single_page.merge_page(page_number_overlay(single_page_w, single_page_h, output_page_no))
+            output_page_no += 1
+            writer.add_page(single_page)
+    with output_pdf_path.open("wb") as f:
+        writer.write(f)
+
+
+def page_number_overlay(page_w: float, page_h: float, page_number: int) -> PageObject:
+    buffer = BytesIO()
+    overlay = canvas.Canvas(buffer, pagesize=(page_w, page_h))
+    overlay.setFillColor(Color(1, 1, 1))
+    overlay.rect(page_w / 2 - 38, 14, 76, 28, fill=1, stroke=0)
+    overlay.setFont("Helvetica", 10)
+    overlay.setFillColor(Color(.33, .33, .33))
+    overlay.drawCentredString(page_w / 2, 26, f"·{page_number}·")
+    overlay.save()
+    buffer.seek(0)
+    return PdfReader(buffer).pages[0]
+
+
+def rendered_used_sides(*results: dict[str, Any]) -> list[list[str]]:
+    sides: list[list[str]] = []
+    for result in results:
+        for rendered_page in result.get("rendered_pages", []):
+            used = rendered_page.get("used_sides") or ["left", "right"]
+            sides.append(used)
+    return sides
+
+
+def rendered_single_page_count(result: dict[str, Any]) -> int:
+    return sum(len(page.get("used_sides") or ["left", "right"]) for page in result.get("rendered_pages", []))
 
 
 def build_pdf(args: argparse.Namespace) -> dict[str, Any]:
@@ -1314,7 +1886,7 @@ def build_pdf(args: argparse.Namespace) -> dict[str, Any]:
         c,
         template,
         practice,
-        story_frames(template, "practice_content_flow"),
+        normalize_flow_frames(story_frames(template, "practice_content_flow"), "practice_content_flow", layout_rules),
         background_dir,
         spread_page_w,
         page_h,
@@ -1327,12 +1899,16 @@ def build_pdf(args: argparse.Namespace) -> dict[str, Any]:
         allow_repeat=page_flow_rules.get("repeat_last_practice_spread_when_overflow", True),
         color_mode=color_mode,
     )
-    answer_page_number_start = 1 + len(practice_result["rendered_pages"]) * 2
+    answer_page_number_start = 1 + (
+        rendered_single_page_count(practice_result)
+        if page_mode == "single"
+        else len(practice_result["rendered_pages"]) * 2
+    )
     answer_result = render_flow(
         c,
         template,
         answers,
-        story_frames(template, "answer_content_flow"),
+        normalize_flow_frames(story_frames(template, "answer_content_flow"), "answer_content_flow", layout_rules),
         background_dir,
         spread_page_w,
         page_h,
@@ -1347,7 +1923,14 @@ def build_pdf(args: argparse.Namespace) -> dict[str, Any]:
     )
     c.save()
     if page_mode == "single":
-        split_spread_pdf_to_single_pages(spread_pdf_path, pdf_path, single_page_w, page_h)
+        split_spread_pdf_to_single_pages(
+            spread_pdf_path,
+            pdf_path,
+            single_page_w,
+            page_h,
+            used_sides_by_spread_page=rendered_used_sides(practice_result, answer_result),
+            renumber_pages=dynamic_page_numbers,
+        )
         spread_pdf_path.unlink(missing_ok=True)
 
     render_preview(pdf_path, preview_path)

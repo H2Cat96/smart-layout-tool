@@ -1,8 +1,10 @@
 import importlib.util
 import tempfile
 import unittest
+from io import BytesIO
 from pathlib import Path
 
+from PIL import Image
 from pypdf import PdfReader
 from reportlab.pdfgen import canvas
 from docx import Document
@@ -38,6 +40,9 @@ class LegacyGeneratorRulesTests(unittest.TestCase):
             table.cell(0, 1).text = "作者感情"
             table.cell(1, 0).text = "听到消息"
             table.cell(1, 1).text = "伤感"
+            image_path = Path(tmp) / "sample.png"
+            Image.new("RGB", (120, 60), "white").save(image_path)
+            doc.add_picture(str(image_path))
             doc.save(docx_path)
 
             blocks = generator.load_docx_paragraphs(docx_path)
@@ -47,6 +52,9 @@ class LegacyGeneratorRulesTests(unittest.TestCase):
             self.assertEqual(blocks[0]["underline_ranges"], [[4, 8]])
             self.assertEqual(blocks[1]["type"], "table")
             self.assertEqual(blocks[1]["rows"], [["事件", "作者感情"], ["听到消息", "伤感"]])
+            self.assertEqual(blocks[2]["type"], "image")
+            self.assertEqual(blocks[2]["width_px"], 120)
+            self.assertEqual(blocks[2]["height_px"], 60)
 
     def test_font_paths_can_be_relative_to_font_map_directory(self):
         generator = load_generator()
@@ -60,6 +68,166 @@ class LegacyGeneratorRulesTests(unittest.TestCase):
             resolved = generator.resolve_font_path("../assets/fonts/Body.ttf", font_map_dir)
 
             self.assertEqual(resolved, font_path.resolve())
+
+    def test_bare_answer_items_after_answer_label_get_numbered_until_explicit_number(self):
+        generator = load_generator()
+        blocks = [
+            "【答案】",
+            "A",
+            "A",
+            "C",
+            "（1）地  （2）的  （3）的 地",
+            "5.（1）的 地 （2）的 得",
+            "“的”改为“地”；“的”改为“得”",
+            "【解析】",
+        ]
+
+        normalized = generator.normalize_bare_answer_items(blocks)
+
+        self.assertEqual(normalized[1], "1.A")
+        self.assertEqual(normalized[2], "2.A")
+        self.assertEqual(normalized[3], "3.C")
+        self.assertEqual(normalized[4], "4.（1）地  （2）的  （3）的 地")
+        self.assertEqual(normalized[5], "5.（1）的 地 （2）的 得")
+        self.assertEqual(normalized[6], "“的”改为“地”；“的”改为“得”")
+
+    def test_pdf_importer_joins_unfinished_sentence_across_pages(self):
+        import importlib.util
+
+        importer_path = Path(__file__).resolve().parents[1] / "tools" / "pdf_to_gonggu_docx.py"
+        spec = importlib.util.spec_from_file_location("pdf_to_gonggu_docx_under_test", importer_path)
+        importer = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(importer)
+
+        current = ""
+        page_one_blocks = []
+        for raw in ["但母亲看看我那"]:
+            line = importer.normalize_line(raw)
+            if importer.should_join(current, line):
+                current += line
+            else:
+                if current:
+                    page_one_blocks.append(current)
+                current = line
+        page_two_blocks = []
+        for raw in ["副样子， 宽容地叹息一声， 没骂我也没打我。"]:
+            line = importer.normalize_line(raw)
+            if importer.should_join(current, line):
+                current += line
+            else:
+                if current:
+                    page_two_blocks.append(current)
+                current = line
+
+        self.assertEqual(page_one_blocks, [])
+        self.assertEqual(page_two_blocks, [])
+        self.assertEqual(current, "但母亲看看我那副样子，宽容地叹息一声，没骂我也没打我。")
+
+    def test_pdf_importer_keeps_circled_article_paragraph_continuation(self):
+        import importlib.util
+
+        importer_path = Path(__file__).resolve().parents[1] / "tools" / "pdf_to_gonggu_docx.py"
+        spec = importlib.util.spec_from_file_location("pdf_to_gonggu_docx_under_test", importer_path)
+        importer = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(importer)
+
+        self.assertTrue(importer.should_join(
+            "③ 但母亲看看我那副样子，宽容地叹息一声，没骂我也没打我，只是让我赶快出去弄点草喂羊。",
+            "我飞快地跑出家门，心情好得要命，那时我真感到了幸福。",
+        ))
+        self.assertFalse(importer.should_join(
+            "③ 上一段结束。",
+            "④ 下一段开始。",
+        ))
+
+    def test_pdf_importer_removes_false_cjk_spaces(self):
+        import importlib.util
+
+        importer_path = Path(__file__).resolve().parents[1] / "tools" / "pdf_to_gonggu_docx.py"
+        spec = importlib.util.spec_from_file_location("pdf_to_gonggu_docx_under_test", importer_path)
+        importer = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(importer)
+
+        self.assertEqual(
+            importer.normalize_line("但母亲看看我那 副 样 子， 宽容地叹息一声， 没骂我也没打我。"),
+            "但母亲看看我那副样子，宽容地叹息一声，没骂我也没打我。",
+        )
+        self.assertEqual(
+            importer.normalize_line("叫叫 “上帝，可怜可怜我吧！ ” 之外"),
+            "叫叫“上帝，可怜可怜我吧！”之外",
+        )
+        self.assertEqual(
+            importer.normalize_line("作者是_ _ _ _ _ _（国籍）作家_ _ _ _ _ _ _ _"),
+            "作者是______（国籍）作家________",
+        )
+        self.assertEqual(importer.normalize_line("1.\x01请你浏览小说"), "1. 请你浏览小说")
+
+    def test_pdf_importer_expands_table_crop_to_include_connector_lines(self):
+        import importlib.util
+
+        importer_path = Path(__file__).resolve().parents[1] / "tools" / "pdf_to_gonggu_docx.py"
+        spec = importlib.util.spec_from_file_location("pdf_to_gonggu_docx_under_test", importer_path)
+        importer = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(importer)
+
+        class Rect:
+            def __init__(self, x0, y0, x1, y1):
+                self.x0 = x0
+                self.y0 = y0
+                self.x1 = x1
+                self.y1 = y1
+                self.width = x1 - x0
+                self.height = y1 - y0
+
+            def __or__(self, other):
+                return Rect(
+                    min(self.x0, other.x0),
+                    min(self.y0, other.y0),
+                    max(self.x1, other.x1),
+                    max(self.y1, other.y1),
+                )
+
+        union = Rect(100, 100, 500, 150)
+        drawings = [
+            {"rect": Rect(130, 148, 132, 190)},
+            {"rect": Rect(330, 148, 332, 182)},
+            {"rect": Rect(520, 148, 522, 190)},
+        ]
+
+        expanded = importer.expand_table_union_with_connectors(union, drawings)
+
+        self.assertEqual(expanded.y1, 190)
+        self.assertEqual(expanded.x1, 500)
+
+    def test_pdf_importer_crops_large_single_frame_figures_but_not_short_decorations(self):
+        import importlib.util
+
+        importer_path = Path(__file__).resolve().parents[1] / "tools" / "pdf_to_gonggu_docx.py"
+        spec = importlib.util.spec_from_file_location("pdf_to_gonggu_docx_under_test", importer_path)
+        importer = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(importer)
+
+        class Rect:
+            def __init__(self, x0, y0, x1, y1):
+                self.x0 = x0
+                self.y0 = y0
+                self.x1 = x1
+                self.y1 = y1
+                self.width = x1 - x0
+                self.height = y1 - y0
+
+        large_dictionary_frame = [Rect(50, 220, 545, 505)]
+        red_section_decoration = [Rect(48, 140, 340, 187), Rect(48, 140, 80, 187), Rect(80, 140, 340, 187)]
+        multi_cell_flowchart = [
+            Rect(100, 130, 190, 165),
+            Rect(200, 130, 290, 165),
+            Rect(300, 130, 390, 165),
+            Rect(400, 130, 500, 165),
+        ]
+
+        self.assertTrue(importer.should_crop_drawing_cluster(large_dictionary_frame, large_dictionary_frame[0]))
+        self.assertFalse(importer.should_crop_drawing_cluster(red_section_decoration, Rect(48, 140, 340, 187)))
+        self.assertTrue(importer.should_crop_drawing_cluster(multi_cell_flowchart, Rect(100, 130, 500, 165)))
 
     def test_split_spread_pdf_outputs_idml_single_page_size(self):
         generator = load_generator()
@@ -86,12 +254,12 @@ class LegacyGeneratorRulesTests(unittest.TestCase):
     def test_color_mode_cmyk_uses_k_only_for_neutral_colors(self):
         generator = load_generator()
 
-        black = generator.color_from_hex("#222222", (0, 0, 0), color_mode="cmyk")
+        black = generator.color_from_hex("cmyk(0,0,0,0.95)", (0, 0, 0), color_mode="cmyk")
         gray = generator.color_from_hex("#898989", (0, 0, 0), color_mode="cmyk")
         red = generator.color_from_hex("#c1020e", (0, 0, 0), color_mode="cmyk")
 
         self.assertEqual((black.cyan, black.magenta, black.yellow), (0, 0, 0))
-        self.assertGreater(black.black, 0.8)
+        self.assertAlmostEqual(black.black, 0.95)
         self.assertEqual((gray.cyan, gray.magenta, gray.yellow), (0, 0, 0))
         self.assertGreater(gray.black, 0.4)
         self.assertGreater(red.magenta, 0.8)
@@ -120,21 +288,42 @@ class LegacyGeneratorRulesTests(unittest.TestCase):
         article_title = generator.paragraph_style("泉", 3, False, fonts, {})
         second_article_title = generator.paragraph_style("一匹骆驼", 39, False, fonts, {})
         second_reading_prompt = generator.paragraph_style("阅读《一匹骆驼》，完成下面的小题。", 38, False, fonts, {})
+        reading_prompt_all_questions = generator.paragraph_style("阅读短文《自然界的时钟》，完成下列各题。", 2, False, fonts, {})
+        structural_reading_prompt = generator.paragraph_style("请结合选文完成练习。", 2, False, fonts, {}, force_reading_prompt=True)
         author = generator.paragraph_style("贾平凹", 4, False, fonts, {})
         source = generator.paragraph_style("（2011-2012北京顺义九上期末）", 15, False, fonts, {})
         answer_label = generator.paragraph_style("【答案】", 2, True, fonts, {})
         plain_answer_label = generator.paragraph_style("答案：", 2, True, fonts, {})
         plain_analysis_label = generator.paragraph_style("解析:", 2, True, fonts, {})
         answer_section = generator.paragraph_style("【练习二】", 1, True, fonts, {})
+        plain_section = generator.paragraph_style("练习一", 0, False, fonts, {})
+        lesson_title = generator.paragraph_style("第一讲", 6, False, fonts, {})
+        topic_heading = generator.paragraph_style("二、长篇阅读", 7, False, fonts, {})
+        question = generator.paragraph_style("3.下面对文章的理解和分析，不正确的两项是（    ）", 10, False, fonts, {})
+        option = generator.paragraph_style("E.文中“一片片的小叶绽了开来”一句，可以改为另一句。", 11, False, fonts, {})
+        parenthesized_option = generator.paragraph_style("（2）所有植物开放和凋谢的时间都是固定不变的。        (       )", 12, False, fonts, {})
+        option_at_legacy_article_title_position = generator.paragraph_style("B．牛背上牧童的短笛，这时候也成天在嘹亮地响。", 3, False, fonts, {})
+        answer_item = generator.paragraph_style("2.这句话运用了神态描写、动作描写和语言描写。", 12, True, fonts, {})
+        meaning_item = generator.paragraph_style("深层含义：①象征顽强不息的生命力。", 13, True, fonts, {})
+        analysis_item = generator.paragraph_style("E项错误，原句将定语后置。", 14, True, fonts, {})
+        judgement_item = generator.paragraph_style("（3）“生物钟”只存在于植物和动物体内，昆虫没有“生物钟”。        (       )", 15, False, fonts, {})
 
         self.assertEqual(article_title["font"], "TitleMid")
         self.assertEqual(second_article_title["kind"], "article_title")
         self.assertEqual(second_article_title["font"], "TitleMid")
         self.assertEqual(second_reading_prompt["kind"], "reading_prompt")
+        self.assertEqual(reading_prompt_all_questions["kind"], "reading_prompt")
+        self.assertEqual(reading_prompt_all_questions["font"], "TitleMid")
+        self.assertEqual(reading_prompt_all_questions["size"], 14)
+        self.assertEqual(reading_prompt_all_questions["color"], "#cc0000")
+        self.assertEqual(structural_reading_prompt["kind"], "reading_prompt")
+        self.assertEqual(structural_reading_prompt["font"], "TitleMid")
         self.assertEqual(author["font"], "Body")
         self.assertEqual(author["size"], 14)
         self.assertEqual(source["align"], "left")
         self.assertEqual(source["color"], "#898989")
+        self.assertEqual(source["space_before"], 1)
+        self.assertEqual(source["space_after"], 0)
         self.assertEqual(answer_label["kind"], "answer_label")
         self.assertFalse(answer_label["bar"])
         self.assertNotIn("bold_rule", answer_label)
@@ -142,6 +331,105 @@ class LegacyGeneratorRulesTests(unittest.TestCase):
         self.assertEqual(plain_analysis_label["display_text"], "【解析】")
         self.assertEqual(answer_section["kind"], "section")
         self.assertTrue(answer_section["bar"])
+        self.assertEqual(plain_section["kind"], "section")
+        self.assertEqual(plain_section["display_text"], "【练习一】")
+        self.assertTrue(plain_section["bar"])
+        self.assertEqual(lesson_title["kind"], "main_title")
+        self.assertEqual(lesson_title["font"], "TitleMid")
+        self.assertEqual(topic_heading["kind"], "topic_heading")
+        self.assertEqual(topic_heading["font"], "TitleMid")
+        self.assertFalse(topic_heading["bar"])
+        self.assertEqual(question["space_before"], 0)
+        self.assertEqual(question["align"], "left")
+        self.assertEqual(question["left_indent"], 36)
+        self.assertLess(question["wrap_width_factor"], 1)
+        self.assertEqual(option["marker_text"], "E.")
+        self.assertTrue(option["inline_marker"])
+        self.assertEqual(option["display_text"], "E. 文中“一片片的小叶绽了开来”一句，可以改为另一句。")
+        self.assertEqual(option["align"], "left")
+        self.assertEqual(option["left_indent"], 36)
+        self.assertLess(option["wrap_width_factor"], 1)
+        self.assertEqual(parenthesized_option["kind"], "option")
+        self.assertEqual(parenthesized_option["marker_text"], "（2）")
+        self.assertTrue(parenthesized_option["inline_marker"])
+        self.assertEqual(parenthesized_option["display_text"], "（2） 所有植物开放和凋谢的时间都是固定不变的。        (       )")
+        self.assertEqual(parenthesized_option["left_indent"], 36)
+        self.assertEqual(option_at_legacy_article_title_position["kind"], "option")
+        self.assertEqual(option_at_legacy_article_title_position["marker_text"], "B.")
+        self.assertEqual(option_at_legacy_article_title_position["font"], "Body")
+        self.assertEqual(answer_item["marker_text"], "2.")
+        self.assertEqual(answer_item["display_text"], "这句话运用了神态描写、动作描写和语言描写。")
+        self.assertEqual(answer_item["left_indent"], 22)
+        self.assertNotIn("marker_text", meaning_item)
+        self.assertNotIn("display_text", meaning_item)
+        self.assertNotIn("marker_text", analysis_item)
+        self.assertNotIn("display_text", analysis_item)
+        self.assertEqual(judgement_item["kind"], "option")
+        self.assertEqual(judgement_item["marker_text"], "（3）")
+        self.assertEqual(judgement_item["font"], "Body")
+        self.assertEqual(judgement_item["size"], 14)
+        self.assertEqual(judgement_item["align"], "left")
+        self.assertTrue(generator.can_be_structural_reading_prompt("阅读短文《自然界的时钟》，完成下列各题。"))
+        self.assertTrue(generator.can_be_structural_reading_prompt("请结合选文完成练习。"))
+        self.assertFalse(generator.can_be_structural_reading_prompt("1.（改编自2023-2024河南洛阳期末）下面各句中画线“的”“地”“得”用法错误的一句是（  ）"))
+        self.assertFalse(generator.can_be_structural_reading_prompt("A．“哥儿，你牢牢记住！”她极其郑重的说。"))
+
+    def test_trailing_answer_parentheses_stay_with_previous_line(self):
+        generator = load_generator()
+        style = {"font": "Helvetica", "size": 10, "leading": 12}
+
+        lines = generator.wrap_text("判断句内容很长很长很长很长很长很长。        (       )", style, 120)
+        repaired = generator.avoid_isolated_answer_parentheses([
+            "（1）公鸡报晓是人们熟知的现象，这能体现自然界是一座奇妙的活时钟。",
+            " (       )",
+        ])
+
+        self.assertGreater(len(lines), 1)
+        self.assertNotEqual(lines[-1].strip(), ")")
+        self.assertNotEqual(lines[-1].strip(), "）")
+        self.assertNotRegex(lines[-1], r"^\\s*[)）]\\s*$")
+        self.assertNotRegex(lines[-1], r"^\\s*[（(]\\s+[）)]\\s*$")
+        self.assertEqual(repaired[-1], "活时钟。 (       )")
+
+    def test_body_wrapping_avoids_short_final_line(self):
+        generator = load_generator()
+        style = {"font": "Helvetica", "size": 10, "leading": 12, "kind": "body"}
+
+        lines = generator.wrap_text(
+            "但母亲看看我那副样子，宽容地叹息一声，没骂我也没打我，只是让我赶快出去弄点草喂羊。",
+            style,
+            280,
+        )
+
+        self.assertGreater(len(lines), 1)
+        self.assertNotEqual(lines[-1], "点草喂羊。")
+        self.assertGreaterEqual(generator.text_width(lines[-1], "Helvetica", 10), 80)
+
+    def test_wrapping_keeps_forbidden_start_punctuation_off_new_lines(self):
+        generator = load_generator()
+        style = {"font": "Helvetica", "size": 10, "leading": 12, "kind": "body"}
+
+        lines = generator.wrap_text("他说：“这一句话很长很长很长很长很长很长”", style, 115)
+
+        self.assertGreater(len(lines), 1)
+        self.assertFalse(any(line.startswith("”") for line in lines[1:]))
+
+    def test_short_line_rebalance_does_not_move_closing_quote_to_line_start(self):
+        generator = load_generator()
+        font_map_path = Path(__file__).resolve().parents[1] / "templates" / "gonggu-neiye" / "extracted" / "font-map.json"
+        font_map = __import__("json").loads(font_map_path.read_text(encoding="utf-8"))
+        generator.register_fonts(font_map, font_map_path.parent)
+        style = {"font": "FZYanSongZhun", "size": 14, "leading": 27, "kind": "question_numbered"}
+
+        lines = generator.wrap_text(
+            "请你结合短文内容，说一说为什么《封神演义》这本书留给“我”的印象十分深刻。",
+            style,
+            440,
+        )
+
+        self.assertGreater(len(lines), 1)
+        self.assertFalse(any(line.startswith("”") for line in lines[1:]))
+        self.assertIn("“我”", "".join(lines))
 
     def test_question_wrapping_aligns_content_with_title(self):
         generator = load_generator()
@@ -163,7 +451,7 @@ class LegacyGeneratorRulesTests(unittest.TestCase):
         self.assertEqual(generator.line_x_offset(style, first_line=True), 28)
         self.assertEqual(generator.line_x_offset(style, first_line=False), 28)
 
-    def test_question_context_indents_following_blocks_and_remainders(self):
+    def test_hanging_context_indents_following_blocks_and_remainders(self):
         generator = load_generator()
         rules = {"styles": {"question_content": {"left_indent": 28}}}
         base_style = {
@@ -174,26 +462,61 @@ class LegacyGeneratorRulesTests(unittest.TestCase):
             "first_line_indent": 18,
         }
         answer_line = {"kind": "answer_line", "font": "Helvetica", "size": 10, "leading": 12}
+        answer_body = {
+            "kind": "answer_body",
+            "font": "Helvetica",
+            "size": 10,
+            "leading": 12,
+            "first_line_indent": 18,
+        }
         question_style = {
             "kind": "question_numbered",
             "font": "Helvetica",
             "size": 10,
             "leading": 12,
             "left_indent": 28,
+            "first_line_indent": 18,
             "badge_text": "2",
             "display_text": "题干内容",
         }
 
-        inherited = generator.apply_question_content_indent(base_style, 28, rules)
-        inherited_line = generator.apply_question_content_indent(answer_line, 28, rules)
+        inherited = generator.apply_hanging_context_indent(base_style, 28, rules)
+        inherited_line = generator.apply_hanging_context_indent(answer_line, 28, rules)
+        inherited_answer = generator.apply_hanging_context_indent(answer_body, 68, rules)
         remainder = generator.make_remainder_block("跨页续排文字", question_style)
 
         self.assertEqual(inherited["left_indent"], 28)
         self.assertEqual(inherited["first_line_indent"], 0)
         self.assertEqual(inherited_line["left_indent"], 28)
+        self.assertEqual(inherited_answer["left_indent"], 68)
+        self.assertEqual(inherited_answer["first_line_indent"], 0)
         self.assertEqual(remainder["style"]["left_indent"], 28)
+        self.assertEqual(remainder["style"]["first_line_indent"], 0)
         self.assertEqual(remainder["style"]["display_text"], "跨页续排文字")
         self.assertNotIn("badge_text", remainder["style"])
+        self.assertNotIn("marker_text", remainder["style"])
+        self.assertTrue(generator.ends_hanging_context({"kind": "topic_heading"}))
+
+    def test_source_and_question_keep_with_next_content(self):
+        generator = load_generator()
+        main_style = {"kind": "main_title", "leading": 34, "space_before": 0, "space_after": 16}
+        section_style = {"kind": "section", "leading": 24, "space_before": 3, "space_after": 8}
+        article_title_style = {"kind": "article_title", "leading": 24, "space_before": 0, "space_after": 4}
+        answer_label_style = {"kind": "answer_label", "leading": 23, "space_before": 5, "space_after": 2}
+        topic_heading_style = {"kind": "topic_heading", "leading": 24, "space_before": 6, "space_after": 4}
+        source_style = {"kind": "source", "leading": 20, "space_before": 1, "space_after": 0}
+        question_style = {"kind": "question_numbered", "leading": 27, "space_before": 0, "space_after": 2}
+        body_style = {"kind": "body", "leading": 24, "space_before": 1, "space_after": 2}
+
+        self.assertTrue(generator.should_keep_with_next(main_style))
+        self.assertTrue(generator.should_keep_with_next(section_style))
+        self.assertTrue(generator.should_keep_with_next(article_title_style))
+        self.assertTrue(generator.should_keep_with_next(answer_label_style))
+        self.assertTrue(generator.should_keep_with_next(topic_heading_style))
+        self.assertTrue(generator.should_keep_with_next(source_style))
+        self.assertTrue(generator.should_keep_with_next(question_style))
+        self.assertFalse(generator.should_keep_with_next(body_style))
+        self.assertEqual(generator.min_block_height_for_keep(source_style), 21)
 
     def test_template_shell_draws_side_strips_on_white_background_with_section_color(self):
         generator = load_generator()
@@ -234,6 +557,41 @@ class LegacyGeneratorRulesTests(unittest.TestCase):
         self.assertEqual(canvas.rects, [(0, 0, 20, 100, 1, 0)])
         self.assertEqual(canvas.colors[0], (0.988235, 0.898039, 0.894118))
 
+    def test_template_shell_skips_answer_side_strips(self):
+        generator = load_generator()
+
+        class FakeCanvas:
+            def __init__(self):
+                self.rects = []
+
+            def setFillColor(self, color):
+                pass
+
+            def rect(self, x, y, w, h, fill, stroke):
+                self.rects.append((x, y, w, h, fill, stroke))
+
+            def setFont(self, font, size):
+                pass
+
+            def drawCentredString(self, x, y, text):
+                pass
+
+        canvas = FakeCanvas()
+        spread = {
+            "spread_index": 4,
+            "slots": [
+                {
+                    "role": "side_strip",
+                    "bbox_pt": {"x": 0, "y": 0, "w": 20, "h": 100},
+                    "fill_rgb": "#eeeeee",
+                }
+            ],
+        }
+
+        generator.paint_template_shell(canvas, spread, 200, 100, "Footer", "white", {}, page_number_start=7)
+
+        self.assertEqual(canvas.rects, [])
+
     def test_paragraph_style_uses_layout_rule_overrides(self):
         generator = load_generator()
         fonts = {
@@ -247,7 +605,7 @@ class LegacyGeneratorRulesTests(unittest.TestCase):
         rules = {
             "styles": {
                 "option": {"font": "OptionFont", "size": 15, "leading": 28, "left_indent": 31},
-                "section_title": {"font": "SectionFont", "size": 17, "leading": 25},
+                "section_title": {"font": "SectionFont", "size": 17, "leading": 25, "space_before": 10},
             },
             "colors": {
                 "practice_bar": "#eeeeee",
@@ -264,8 +622,82 @@ class LegacyGeneratorRulesTests(unittest.TestCase):
         self.assertEqual(option["leading"], 28)
         self.assertEqual(option["left_indent"], 31)
         self.assertEqual(practice_section["font"], "SectionFont")
+        self.assertEqual(practice_section["space_before"], 10)
         self.assertEqual(practice_section["bar_color"], "#eeeeee")
         self.assertEqual(answer_section["bar_color"], "#777777")
+
+    def test_detection_hanging_and_normalization_rules_are_configurable(self):
+        generator = load_generator()
+        fonts = {
+            "title": "Title",
+            "title_mid": "TitleMid",
+            "title_bold": "TitleBold",
+            "question": "Question",
+            "body": "Body",
+            "footer": "Footer",
+        }
+        rules = {
+            "content_detection": {
+                "author_names": ["苏学军"],
+                "lesson_title_patterns": [r"^单元[一二三四五六七八九十]+$"],
+                "reading_prompt_patterns": [r"^精读.*"],
+                "article_title": {"max_length": 20},
+            },
+            "markers": {
+                "question_patterns": [r"^题([1-9]\d*)[:：]\s*(.*)$"],
+                "option_patterns": [r"^选项([A-E])[:：]\s*(.*)$"],
+            },
+            "normalization": {
+                "answer_labels": {
+                    "答": "【答案】",
+                    "析": "【解析】",
+                }
+            },
+            "hanging": {
+                "end_kinds": ["section"],
+                "inherit_kinds": ["body"],
+                "clear_first_line_indent_kinds": ["body"],
+            },
+            "page_flow": {
+                "keep_with_next_kinds": ["source"],
+            },
+        }
+
+        author = generator.paragraph_style("苏学军", 3, False, fonts, rules)
+        lesson = generator.paragraph_style("单元一", 0, False, fonts, rules)
+        prompt = generator.paragraph_style("精读《火星之谜》，完成练习。", 1, False, fonts, rules)
+        question = generator.paragraph_style("题12：下面说法正确的是（    ）", 2, False, fonts, rules)
+        option = generator.paragraph_style("选项B：这是一项测试。", 3, False, fonts, rules)
+        answer = generator.paragraph_style("答", 4, True, fonts, rules)
+
+        self.assertEqual(author["kind"], "author")
+        self.assertEqual(lesson["kind"], "main_title")
+        self.assertEqual(prompt["kind"], "reading_prompt")
+        self.assertEqual(question["badge_text"], "12")
+        self.assertEqual(question["display_text"], "下面说法正确的是（    ）")
+        self.assertEqual(option["marker_text"], "B.")
+        self.assertEqual(option["display_text"], "B. 这是一项测试。")
+        self.assertEqual(answer["display_text"], "【答案】")
+        self.assertFalse(generator.ends_hanging_context({"kind": "topic_heading"}, rules))
+        self.assertTrue(generator.ends_hanging_context({"kind": "section"}, rules))
+        self.assertTrue(generator.can_inherit_hanging_context({"kind": "body"}, rules))
+        self.assertFalse(generator.can_inherit_hanging_context({"kind": "image"}, rules))
+        self.assertTrue(generator.should_keep_with_next({"kind": "source"}, rules))
+        self.assertFalse(generator.should_keep_with_next({"kind": "question_numbered"}, rules))
+
+    def test_flow_frame_min_height_rule_extends_short_frames_without_mutating_source(self):
+        generator = load_generator()
+        frames = [
+            {"spread_index": 5, "bbox_pt": {"x": 56, "y": 56, "w": 480, "h": 683}},
+            {"spread_index": 5, "bbox_pt": {"x": 652, "y": 56, "w": 480, "h": 188}},
+        ]
+        rules = {"page_flow": {"min_frame_height_pt": {"answer_content_flow": 680}}}
+
+        normalized = generator.normalize_flow_frames(frames, "answer_content_flow", rules)
+
+        self.assertEqual(frames[1]["bbox_pt"]["h"], 188)
+        self.assertEqual(normalized[0]["bbox_pt"]["h"], 683)
+        self.assertEqual(normalized[1]["bbox_pt"]["h"], 680)
 
     def test_load_svg_assets_uses_asset_map_filenames_and_color_overrides(self):
         generator = load_generator()

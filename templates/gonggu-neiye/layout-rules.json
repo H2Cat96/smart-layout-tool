@@ -5,7 +5,127 @@
     "skip_empty_tail_spreads": true,
     "repeat_last_practice_spread_when_overflow": true,
     "repeat_last_answer_spread_when_overflow": true,
-    "dynamic_page_numbers": true
+    "dynamic_page_numbers": true,
+    "keep_with_next_kinds": [
+      "main_title",
+      "section",
+      "topic_heading",
+      "article_title",
+      "answer_label",
+      "source",
+      "question_numbered"
+    ],
+    "min_frame_height_pt": {
+      "practice_content_flow": 680,
+      "answer_content_flow": 680
+    }
+  },
+  "content_detection": {
+    "section_title_patterns": [
+      "^【.+】$",
+      "^练习[一二三四五六七八九十]+$"
+    ],
+    "section_title_exclude": [
+      "【答案】",
+      "【解析】"
+    ],
+    "lesson_title_patterns": [
+      "^第[一二三四五六七八九十百]+讲$"
+    ],
+    "topic_heading_patterns": [
+      "^[一二三四五六七八九十]+、\\S+"
+    ],
+    "reading_prompt_patterns": [
+      "^阅读.*(题|完成|回答|问题)"
+    ],
+    "structural_reading_prompt_exclude_patterns": [
+      "^[1-9]\\d*[.．、]",
+      "^[A-E][.．]",
+      "^（\\d+）"
+    ],
+    "structural_reading_prompt_keywords": [
+      "阅读",
+      "选文",
+      "短文",
+      "文章",
+      "完成",
+      "回答"
+    ],
+    "article_title": {
+      "max_length": 12,
+      "reject_prefixes": [
+        "【",
+        "（",
+        "(",
+        "“",
+        "《"
+      ],
+      "reject_patterns": [
+        "^[A-E][.．]",
+        "^[1-9]\\d*[.．、]"
+      ],
+      "forbidden_punctuation_pattern": "[，。！？；：、,.!?;:]"
+    },
+    "author_names": [
+      "贾平凹"
+    ],
+    "source_patterns": [
+      "^（.*）$"
+    ]
+  },
+  "markers": {
+    "question_patterns": [
+      "^([1-9]\\d*)[.．、]\\s*(.*)$"
+    ],
+    "option_patterns": [
+      "^([A-E])[.．]\\s*(.*)$"
+    ],
+    "parenthesized_option_patterns": [
+      "^(（\\d+）)\\s*(.*)$"
+    ],
+    "judgement_patterns": [
+      "^（\\d+）"
+    ]
+  },
+  "hanging": {
+    "start_fields": [
+      "marker_text",
+      "badge_text"
+    ],
+    "end_kinds": [
+      "main_title",
+      "topic_heading",
+      "reading_prompt",
+      "article_title",
+      "author",
+      "section",
+      "source",
+      "answer_label"
+    ],
+    "inherit_kinds": [
+      "body",
+      "answer_body",
+      "answer_line",
+      "option",
+      "question_numbered",
+      "table",
+      "image"
+    ],
+    "clear_first_line_indent_kinds": [
+      "body",
+      "answer_body",
+      "answer_line"
+    ]
+  },
+  "normalization": {
+    "answer_labels": {
+      "【答案】": "【答案】",
+      "答案：": "【答案】",
+      "答案:": "【答案】",
+      "【解析】": "【解析】",
+      "解析：": "【解析】",
+      "解析:": "【解析】"
+    }
   },
   "styles": {
     "main_title": {
@@ -17,7 +137,8 @@
     "section_title": {
       "font": "FZYanSongCu",
       "size": 16,
-      "leading": 24
+      "leading": 24,
+      "space_before": 10
     },
     "article_body": {
       "font": "FZKaiGBK",
@@ -29,17 +150,20 @@
       "font": "FZYanSongZhun",
       "size": 14,
       "leading": 27,
-      "align": "justify-last-left"
+      "align": "left",
+      "space_before": 0,
+      "left_indent": 36
     },
     "question_content": {
-      "left_indent": 28
+      "left_indent": 36
     },
     "option": {
       "font": "FZKaiGBK",
       "size": 14,
       "leading": 27,
-      "align": "justify-last-left",
-      "left_indent": 28
+      "align": "left",
+      "space_before": 0,
+      "left_indent": 36
     },
     "answer_body": {
       "font": "FZKaiGBK",
@@ -53,6 +177,6 @@
     "practice_bar": "#fce5e4",
     "answer_gray": "#898989",
     "source_text": "#898989",
-    "body_text": "#222222"
+    "body_text": "cmyk(0,0,0,0.95)"
   }
 }
