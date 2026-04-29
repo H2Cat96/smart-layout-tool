@@ -98,6 +98,7 @@ def build_with_legacy_generator(
     background_mode: str = "white",
     page_mode: str = "single",
     color_mode: str = "cmyk",
+    page_number_start: int = 1,
     templates_dir: Path = DEFAULT_TEMPLATES_DIR,
 ) -> dict[str, Any]:
     paths = resolve_template_paths(template_ref, templates_dir=templates_dir)
@@ -119,6 +120,7 @@ def build_with_legacy_generator(
         title=title,
         page_mode=page_mode,
         color_mode=color_mode,
+        page_number_start=page_number_start,
         layout_rules=str(paths.layout_rules) if paths.layout_rules else None,
         asset_map=str(paths.asset_map) if paths.asset_map else None,
     )

@@ -52,6 +52,11 @@ STYLE_OVERRIDE_KEYS = {
     "space_after",
     "first_line_indent",
     "left_indent",
+    "cell_pad_x",
+    "cell_pad_y",
+    "max_height_pt",
+    "wrap_width_factor",
+    "min_last_line_chars",
 }
 DEFAULT_CONTENT_DETECTION = {
     "section_title_patterns": [r"^【.+】$", r"^练习[一二三四五六七八九十]+$"],
@@ -68,7 +73,7 @@ DEFAULT_CONTENT_DETECTION = {
     "article_title": {
         "max_length": 12,
         "reject_prefixes": ["【", "（", "(", "“", "《"],
-        "reject_patterns": [r"^[A-E][.．]", r"^[1-9]\d*[.．、]"],
+        "reject_patterns": [r"^[A-E][.．]", r"^[1-9]\d*[.．、]", r"^祝$", r"^[X\d]+年[X\d]+月[X\d]+日$"],
         "forbidden_punctuation_pattern": r"[，。！？；：、,.!?;:]",
     },
     "author_names": ["贾平凹"],
@@ -92,7 +97,7 @@ DEFAULT_HANGING = {
         "source",
         "answer_label",
     ],
-    "inherit_kinds": ["body", "answer_body", "answer_line", "option", "question_numbered", "table", "image"],
+    "inherit_kinds": ["body", "answer_body", "answer_line", "option", "question_numbered", "image"],
     "clear_first_line_indent_kinds": ["body", "answer_body", "answer_line"],
 }
 DEFAULT_NORMALIZATION = {
@@ -323,7 +328,58 @@ def is_underlined_blank_paragraph(paragraph: Any) -> bool:
     return any("<w:u" in run._element.xml for run in paragraph.runs)
 
 
+def _paragraph_has_fill_in_blanks(paragraph: Any) -> bool:
+    """True if this paragraph has any blank (space-only) underlined run — fill-in style."""
+    return any(
+        not run.text.strip() and run.underline and run.text
+        for run in paragraph.runs
+    )
+
+
+def paragraph_fill_in_text(paragraph: Any) -> str:
+    """Build paragraph text replacing blank underlined runs with underscore fill-in markers."""
+    parts: list[str] = []
+    for run in paragraph.runs:
+        t = re.sub(r"[\r\n\t]+", " ", run.text)
+        if not t.strip() and "<w:u" in run._element.xml:
+            n = max(1, len(t) // 4)
+            parts.append("_" * n)
+        else:
+            parts.append(t)
+    return "".join(parts).strip()
+
+
 def paragraph_underline_ranges(paragraph: Any) -> list[list[int]]:
+    """Return character ranges for underline rendering.
+
+    For fill-in paragraphs: positions are relative to paragraph_fill_in_text()
+    (blank underlined runs become '_' markers of length max(1, n//4)).
+    For vocabulary paragraphs: positions are relative to clean_text() output.
+    """
+    is_fill_in = _paragraph_has_fill_in_blanks(paragraph)
+    ranges: list[list[int]] = []
+    cursor = 0
+    for run in paragraph.runs:
+        raw = re.sub(r"[\r\n\t]+", " ", run.text)
+        if not raw:
+            continue
+        has_u = "<w:u" in run._element.xml
+        is_blank = not raw.strip()
+        start = cursor
+        if is_fill_in and is_blank and has_u:
+            # paragraph_fill_in_text converts this run to "_" * n
+            n = max(1, len(raw) // 4)
+            cursor += n
+            ranges.append([start, cursor, len(raw)])  # 3rd element: original space count for line width
+        else:
+            cursor += len(raw)
+            if not is_fill_in and has_u and not is_blank:
+                ranges.append([start, cursor])
+    return ranges
+
+
+def paragraph_bold_ranges(paragraph: Any) -> list[list[int]]:
+    """Return character ranges where Word run-level bold is explicitly set."""
     ranges: list[list[int]] = []
     cursor = 0
     for run in paragraph.runs:
@@ -332,13 +388,27 @@ def paragraph_underline_ranges(paragraph: Any) -> list[list[int]]:
             continue
         start = cursor
         cursor += len(text)
-        if text.strip() and "<w:u" in run._element.xml:
+        if run.bold is True:
             ranges.append([start, cursor])
     return ranges
 
 
 def clean_cell_text(text: str) -> str:
     return re.sub(r"[\r\n\t]+", " ", text).strip()
+
+
+def cell_text_with_fill_ins(cell: Any) -> str:
+    """Like clean_cell_text but converts blank underlined runs to underscore markers.
+    Preserves paragraph breaks as \\n so column-width and multi-line rendering work correctly."""
+    parts: list[str] = []
+    for p in cell.paragraphs:
+        if _paragraph_has_fill_in_blanks(p):
+            t = paragraph_fill_in_text(p)
+        else:
+            t = re.sub(r"[\r\n\t]+", " ", p.text).strip()
+        if t:
+            parts.append(t)
+    return "\n".join(parts)
 
 
 def block_text(block: Any) -> str:
@@ -363,23 +433,137 @@ def is_image_block(block: Any) -> bool:
     return isinstance(block, dict) and block.get("type") == "image"
 
 
+def is_image_row_block(block: Any) -> bool:
+    return isinstance(block, dict) and block.get("type") == "image_row"
+
+
+_IMAGE_ROW_LABEL_TOKEN_RE = re.compile(r'^[一-鿿]{1,4}$')
+
+
+def _split_image_row_labels(text: str) -> list[str] | None:
+    """Return label list if text is a row of short CJK labels (甲 乙 丙), else None."""
+    tokens = re.split(r'[\s ]+', text.strip())
+    if len(tokens) < 2 or len(tokens) > 6:
+        return None
+    if all(_IMAGE_ROW_LABEL_TOKEN_RE.match(t) for t in tokens):
+        return tokens
+    return None
+
+
 def table_rows(block: dict[str, Any]) -> list[list[str]]:
     return block.get("rows", [])
 
 
-def paragraph_image_blocks(paragraph: Paragraph) -> list[dict[str, Any]]:
+_WNS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+_CHINESE_NUMS = "零一二三四五六七八九十"
+
+
+def _build_numbering_map(doc) -> dict[str, Any]:
+    """Parse numbering.xml into {abstract_nums, num_map} for list-number resolution."""
+    try:
+        num_part = doc.part.numbering_part
+    except (AttributeError, NotImplementedError):
+        return {}
+    if num_part is None:
+        return {}
+    NS = _WNS
+    tree = num_part._element
+    abstract_nums: dict[str, dict] = {}
+    for abs_num in tree.findall(f"{{{NS}}}abstractNum"):
+        abs_id = abs_num.get(f"{{{NS}}}abstractNumId")
+        levels: dict[str, dict] = {}
+        for lvl in abs_num.findall(f"{{{NS}}}lvl"):
+            ilvl = lvl.get(f"{{{NS}}}ilvl")
+            fmt_el = lvl.find(f"{{{NS}}}numFmt")
+            text_el = lvl.find(f"{{{NS}}}lvlText")
+            start_el = lvl.find(f"{{{NS}}}start")
+            levels[ilvl] = {
+                "numFmt": fmt_el.get(f"{{{NS}}}val") if fmt_el is not None else "decimal",
+                "lvlText": text_el.get(f"{{{NS}}}val") if text_el is not None else "%1",
+                "start": int(start_el.get(f"{{{NS}}}val", "1")) if start_el is not None else 1,
+            }
+        abstract_nums[abs_id] = levels
+    num_map: dict[str, dict] = {}
+    for num in tree.findall(f"{{{NS}}}num"):
+        num_id = num.get(f"{{{NS}}}numId")
+        abs_id_el = num.find(f"{{{NS}}}abstractNumId")
+        if abs_id_el is None:
+            continue
+        abs_id = abs_id_el.get(f"{{{NS}}}val")
+        overrides: dict[str, dict] = {}
+        for ov in num.findall(f"{{{NS}}}lvlOverride"):
+            ilvl = ov.get(f"{{{NS}}}ilvl")
+            so = ov.find(f"{{{NS}}}startOverride")
+            if so is not None:
+                overrides[ilvl] = {"start": int(so.get(f"{{{NS}}}val", "1"))}
+        num_map[num_id] = {"abs_id": abs_id, "overrides": overrides}
+    return {"abstract_nums": abstract_nums, "num_map": num_map}
+
+
+def _format_list_num(n: int, num_fmt: str) -> str:
+    if num_fmt == "upperLetter":
+        return chr(ord("A") + (n - 1)) if 1 <= n <= 26 else str(n)
+    if num_fmt == "lowerLetter":
+        return chr(ord("a") + (n - 1)) if 1 <= n <= 26 else str(n)
+    if num_fmt in ("chineseCounting", "chineseCountingThousand", "ideographTraditional"):
+        if 1 <= n <= 10:
+            return _CHINESE_NUMS[n]
+    return str(n)
+
+
+def _paragraph_list_prefix(p, numbering_map: dict, counters: dict) -> str:
+    """Return the auto-list prefix (e.g. '（2）') for a paragraph, or '' if none."""
+    if not numbering_map:
+        return ""
+    NS = _WNS
+    pPr = p._p.find(f"{{{NS}}}pPr")
+    if pPr is None:
+        return ""
+    num_pr = pPr.find(f"{{{NS}}}numPr")
+    if num_pr is None:
+        return ""
+    ilvl_el = num_pr.find(f"{{{NS}}}ilvl")
+    num_id_el = num_pr.find(f"{{{NS}}}numId")
+    if ilvl_el is None or num_id_el is None:
+        return ""
+    ilvl = ilvl_el.get(f"{{{NS}}}val", "0")
+    num_id = num_id_el.get(f"{{{NS}}}val", "0")
+    if num_id == "0":
+        return ""
+    num_map = numbering_map.get("num_map", {})
+    abstract_nums = numbering_map.get("abstract_nums", {})
+    if num_id not in num_map:
+        return ""
+    entry = num_map[num_id]
+    abs_id = entry["abs_id"]
+    if abs_id not in abstract_nums:
+        return ""
+    lvl_def = abstract_nums[abs_id].get(ilvl, {})
+    start = entry.get("overrides", {}).get(ilvl, {}).get("start", lvl_def.get("start", 1))
+    key = (num_id, ilvl)
+    if key not in counters:
+        counters[key] = start
+    else:
+        counters[key] += 1
+    n = counters[key]
+    lvl_text = lvl_def.get("lvlText", "%1")
+    num_fmt = lvl_def.get("numFmt", "decimal")
+    return re.sub(r"%\d+", _format_list_num(n, num_fmt), lvl_text)
+
+
+def _extract_embedded_images(element, part) -> list[dict[str, Any]]:
     blocks: list[dict[str, Any]] = []
     rel_attr = "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}embed"
-    for node in paragraph._p.iter():
+    for node in element.iter():
         if not node.tag.endswith("}blip"):
             continue
         rel_id = node.get(rel_attr)
         if not rel_id:
             continue
-        part = paragraph.part.related_parts.get(rel_id)
-        if part is None:
+        rel_part = part.related_parts.get(rel_id)
+        if rel_part is None:
             continue
-        blob = part.blob
+        blob = rel_part.blob
         try:
             image = Image.open(BytesIO(blob))
             width_px, height_px = image.size
@@ -388,11 +572,144 @@ def paragraph_image_blocks(paragraph: Paragraph) -> list[dict[str, Any]]:
         blocks.append({
             "type": "image",
             "blob": blob,
-            "content_type": getattr(part, "content_type", ""),
+            "content_type": getattr(rel_part, "content_type", ""),
             "width_px": width_px,
             "height_px": height_px,
         })
     return blocks
+
+
+def paragraph_image_blocks(paragraph: Paragraph) -> list[dict[str, Any]]:
+    return _extract_embedded_images(paragraph._p, paragraph.part)
+
+
+def cell_image_blocks(cell) -> list[dict[str, Any]]:
+    return _extract_embedded_images(cell._tc, cell.part)
+
+
+def flatten_image_table(rows_with_cells: list[list[dict[str, Any]]]) -> list[Any]:
+    """Convert a Word table that carries images (not data) into inline image blocks.
+
+    When the table is the common "images on top row, labels on bottom row" shape,
+    the label text is attached to its image as a ``caption`` so the pair renders
+    atomically and cannot be split across pages.
+    """
+    if len(rows_with_cells) == 2:
+        row_img, row_text = rows_with_cells
+        row_img_only_images = all(c["images"] and not c["text"] for c in row_img)
+        row_text_only_text = all(not c["images"] for c in row_text)
+        if row_img_only_images and row_text_only_text and len(row_img) == len(row_text):
+            result: list[Any] = []
+            for img_cell, text_cell in zip(row_img, row_text):
+                caption = text_cell["text"] or None
+                for idx, img in enumerate(img_cell["images"]):
+                    paired = dict(img)
+                    if caption and idx == len(img_cell["images"]) - 1:
+                        paired["caption"] = caption
+                    result.append(paired)
+            return result
+    result = []
+    for row in rows_with_cells:
+        for cell in row:
+            result.extend(cell["images"])
+            if cell["text"]:
+                result.append(cell["text"])
+    return result
+
+
+
+
+STEM_BLANK_RE = re.compile(r"[（(][\s　]*[）)][\s。，]*$")
+BARE_OPTION_REJECT_RE = re.compile(
+    r"^(?:[（(]\d+[）)]|\d+[.．、]|[①-⑳]|[一二三四五六七八九十百]+[、.．]|【|[（(]\d{4}|第[一二三四五六七八九十百]+)"
+)
+_SOURCE_IN_PARENS_RE = re.compile(r"^[（(].*\d{4}.*[）)]$")
+
+
+def is_candidate_bare_option(text: str) -> bool:
+    text = (text or "").strip()
+    if not text or len(text) > 160:
+        return False
+    if BARE_OPTION_REJECT_RE.match(text):
+        return False
+    if STEM_BLANK_RE.search(text):
+        return False
+    if _SOURCE_IN_PARENS_RE.match(text):
+        return False  # source citations like （改编自2024-2025...）
+    return True
+
+
+def infer_bare_options(blocks: list[Any]) -> list[Any]:
+    """When a question stem ends with a blank "（ ）" marker, auto-label bare
+    body paragraphs that follow as A./B./C./... Supports two shapes:
+      - All 4 candidates are bare (assume they start at A).
+      - Some are bare and one is already labeled; start letter is back-calculated
+        from the labeled position so pre-existing D. maps to A/B/C/D.
+    """
+    option_pat = re.compile(r"^([A-F])[.．]\s*(.*)$")
+    result: list[Any] = []
+    i = 0
+    while i < len(blocks):
+        block = blocks[i]
+        text = block_text(block)
+        result.append(block)
+        if not text or not STEM_BLANK_RE.search(text):
+            i += 1
+            continue
+        candidates: list[tuple[str, Any]] = []
+        labeled_idx = -1
+        labeled_letter: str | None = None
+        max_candidates = 4
+        j = i + 1
+        while j < len(blocks):
+            nb = blocks[j]
+            nt = block_text(nb).strip()
+            if not nt:
+                break
+            if is_table_block(nb) or is_image_block(nb):
+                break
+            m = option_pat.match(nt)
+            if m:
+                letter = m.group(1)
+                if letter in ("E", "F"):
+                    max_candidates = max(max_candidates, ord(letter) - ord("A") + 1)
+                if len(candidates) >= max_candidates:
+                    break
+                if labeled_idx == -1:
+                    labeled_idx = len(candidates)
+                    labeled_letter = letter
+                candidates.append(("labeled", nb))
+                j += 1
+                continue
+            if is_candidate_bare_option(nt):
+                if len(candidates) >= max_candidates:
+                    break
+                candidates.append(("bare", nb))
+                j += 1
+                continue
+            break
+        has_bare = any(kind == "bare" for kind, _ in candidates)
+        if not has_bare:
+            i += 1
+            continue
+        if labeled_letter:
+            start_letter = chr(ord(labeled_letter) - labeled_idx)
+        elif len(candidates) >= 3:
+            start_letter = "A"
+        else:
+            i += 1
+            continue
+        if ord(start_letter) < ord("A") or ord(start_letter) + len(candidates) - 1 > ord("F"):
+            i += 1
+            continue
+        for k, (kind, b) in enumerate(candidates):
+            if kind == "labeled":
+                result.append(b)
+            else:
+                letter = chr(ord(start_letter) + k)
+                result.append(f"{letter}. {block_text(b).strip()}")
+        i = j
+    return result
 
 
 def normalize_bare_answer_items(blocks: list[Any]) -> list[Any]:
@@ -425,8 +742,36 @@ def normalize_bare_answer_items(blocks: list[Any]) -> list[Any]:
     return normalized
 
 
+_LIST_PREFIX_RE = re.compile(r"^(?:[（(]\d+[）)]|[①-⑳]|\d+[.．、])")
+# Source citations like （改编自2025年...） or （选自...） should never get list prefixes
+_SOURCE_CITATION_RE = re.compile(r"^（[^）]*(?:\d{4}|改编自|改写自|选自|摘自)[^）]*）")
+
+# Map from a base font to its bold-weight equivalent for in-line bold rendering
+_BOLD_FONT_MAP: dict[str, str] = {
+    "FZKaiGBK": "FZYanSongZhun",
+    "FZYanSongZhun": "FZYanSongCu",
+    "FZYanSongZhong": "FZYanSongCu",
+    "AlibabaPuHuiTiR": "AlibabaPuHuiTiB",
+    "AlibabaPuHuiTiL": "AlibabaPuHuiTiB",
+    "AlibabaPuHuiTiM": "AlibabaPuHuiTiB",
+}
+
+# FZKaiGBK has glyphs for ①–⑩ (U+2460–U+2469) but not ⑪–⑳ (U+246A–U+2473).
+_MISSING_CIRCLED_NUMS: frozenset[int] = frozenset(range(0x2460, 0x2474))
+_CIRCLED_FALLBACK_FONT: str | None = None
+for _fb_path in ("/Library/Fonts/Arial Unicode.ttf", "/System/Library/Fonts/Supplemental/Arial Unicode.ttf"):
+    try:
+        pdfmetrics.registerFont(TTFont("ArialUnicode", _fb_path))
+        _CIRCLED_FALLBACK_FONT = "ArialUnicode"
+        break
+    except Exception:
+        pass
+
+
 def load_docx_paragraphs(docx_path: Path) -> list[Any]:
     doc = Document(docx_path)
+    numbering_map = _build_numbering_map(doc)
+    list_counters: dict = {}
     blocks: list[Any] = []
     for child in doc.element.body.iterchildren():
         if child.tag.endswith("}p"):
@@ -435,26 +780,85 @@ def load_docx_paragraphs(docx_path: Path) -> list[Any]:
                 blocks.append(ANSWER_LINE_SENTINEL)
                 continue
             image_blocks = paragraph_image_blocks(p)
-            text = clean_text(p.text)
+            text = paragraph_fill_in_text(p) if _paragraph_has_fill_in_blanks(p) else clean_text(p.text)
+            list_prefix = _paragraph_list_prefix(p, numbering_map, list_counters)
+            if list_prefix and not _LIST_PREFIX_RE.match(text) and not _SOURCE_CITATION_RE.match(text):
+                text = list_prefix + text
             if not text:
                 blocks.extend(image_blocks)
                 continue
             text = normalize_answer_parentheses(text)
             underline_ranges = paragraph_underline_ranges(p)
-            if underline_ranges:
-                blocks.append({"type": "paragraph", "text": text, "underline_ranges": underline_ranges})
+            bold_ranges = paragraph_bold_ranges(p)
+            word_align = "right" if p.alignment == 2 else None
+            if underline_ranges or bold_ranges or word_align:
+                block: dict[str, Any] = {"type": "paragraph", "text": text}
+                if underline_ranges:
+                    block["underline_ranges"] = underline_ranges
+                if bold_ranges:
+                    block["bold_ranges"] = bold_ranges
+                if word_align:
+                    block["word_align"] = word_align
+                blocks.append(block)
             else:
                 blocks.append(text)
             blocks.extend(image_blocks)
         elif child.tag.endswith("}tbl"):
             table = Table(child, doc)
-            rows = [
-                [clean_cell_text(cell.text) for cell in row.cells]
-                for row in table.rows
-            ]
-            if rows:
-                blocks.append({"type": "table", "rows": rows})
-    return normalize_bare_answer_items(blocks)
+            rows_with_cells: list[list[dict[str, Any]]] = []
+            table_has_images = False
+            for row in table.rows:
+                row_cells: list[dict[str, Any]] = []
+                for cell in row.cells:
+                    images = cell_image_blocks(cell)
+                    if images:
+                        table_has_images = True
+                    row_cells.append({"text": cell_text_with_fill_ins(cell), "images": images})
+                rows_with_cells.append(row_cells)
+            if not rows_with_cells:
+                continue
+            blocks.append({
+                "type": "table",
+                "rows": [[cell["text"] for cell in row] for row in rows_with_cells],
+                "row_images": [[cell["images"] for cell in row] for row in rows_with_cells],
+            })
+    # After "祝" (letter salutation), the immediately following text line is
+    # the closing wish and should also be right-aligned.
+    propagated: list[Any] = []
+    after_zhu = False
+    for blk in blocks:
+        t = block_text(blk)
+        if t == "祝":
+            after_zhu = True
+        elif after_zhu and t:
+            if isinstance(blk, str):
+                blk = {"type": "paragraph", "text": blk, "word_align": "right"}
+            elif isinstance(blk, dict) and "word_align" not in blk:
+                blk = dict(blk)
+                blk["word_align"] = "right"
+            after_zhu = False
+        propagated.append(blk)
+    # Merge label-text + N consecutive image blocks into image_row blocks.
+    merged: list[Any] = []
+    pi = 0
+    while pi < len(propagated):
+        blk = propagated[pi]
+        t = block_text(blk)
+        if t:
+            labels = _split_image_row_labels(t)
+            if labels:
+                n = len(labels)
+                ahead = propagated[pi + 1: pi + 1 + n]
+                if len(ahead) == n and all(is_image_block(b) for b in ahead):
+                    merged.append({
+                        "type": "image_row",
+                        "items": [{"label": lbl, "image": img} for lbl, img in zip(labels, ahead)],
+                    })
+                    pi += n + 1
+                    continue
+        merged.append(blk)
+        pi += 1
+    return infer_bare_options(normalize_bare_answer_items(merged))
 
 
 def split_practice_and_answers(paragraphs: list[Any]) -> tuple[list[Any], list[Any]]:
@@ -746,25 +1150,22 @@ def make_placeholder_background(
     dpi: int,
     tone: str,
 ) -> None:
-    """Create a no-text, no-illustration paper background."""
+    """Create a no-text, no-illustration paper background (numpy-vectorized)."""
+    import numpy as np
     width = round(page_w_pt / 72 * dpi)
     height = round(page_h_pt / 72 * dpi)
     base_rgb = (255, 254, 251) if tone == "practice" else (253, 253, 252)
-    rng = random.Random(f"{out_path.name}-{tone}")
-    img = Image.new("RGB", (width, height), base_rgb)
-    pixels = img.load()
-    for y in range(height):
-        # Very light vertical paper variation; no center seam.
-        row_delta = rng.randint(-1, 1)
-        for x in range(width):
-            if rng.random() < 0.018:
-                delta = rng.choice([-3, -2, 2, 3])
-            else:
-                delta = row_delta
-            r = max(0, min(255, base_rgb[0] + delta))
-            g = max(0, min(255, base_rgb[1] + delta))
-            b = max(0, min(255, base_rgb[2] + delta))
-            pixels[x, y] = (r, g, b)
+    seed = hash(f"{out_path.name}-{tone}") & 0xFFFF_FFFF
+    rng = np.random.default_rng(seed)
+    row_deltas = rng.integers(-1, 2, size=height, dtype=np.int16)
+    canvas = np.empty((height, width, 3), dtype=np.int16)
+    canvas[:] = base_rgb
+    canvas += row_deltas[:, np.newaxis, np.newaxis]
+    noise_mask = rng.random((height, width)) < 0.018
+    noise_vals = rng.choice(np.array([-3, -2, 2, 3], dtype=np.int16), size=(height, width))
+    canvas[noise_mask] += noise_vals[noise_mask, np.newaxis]
+    np.clip(canvas, 0, 255, out=canvas)
+    img = Image.fromarray(canvas.astype(np.uint8), mode="RGB")
     ensure_dir(out_path.parent)
     img.save(out_path, quality=95)
 
@@ -779,8 +1180,13 @@ def ensure_backgrounds(
     page_w: float,
     page_h: float,
     dpi: int,
+    template_dir: Path | None = None,
 ) -> list[dict[str, Any]]:
     ensure_dir(background_dir)
+    # Template-level cache: backgrounds are identical across runs, so reuse if available
+    template_cache_dir = (template_dir / "backgrounds_cache") if template_dir else None
+    if template_cache_dir:
+        ensure_dir(template_cache_dir)
     records: list[dict[str, Any]] = []
     for spread in template["spreads"]:
         if spread["page_count"] != 2:
@@ -790,7 +1196,16 @@ def ensure_backgrounds(
         generated = False
         if not path.exists():
             tone = "answer" if spread_index >= 4 else "practice"
-            make_placeholder_background(path, page_w, page_h, dpi, tone=tone)
+            # Check template-level cache first
+            cache_path = background_path_for_spread(template_cache_dir, spread_index) if template_cache_dir else None
+            if cache_path and cache_path.exists():
+                import shutil
+                shutil.copy2(cache_path, path)
+            else:
+                make_placeholder_background(path, page_w, page_h, dpi, tone=tone)
+                if cache_path:
+                    import shutil
+                    shutil.copy2(path, cache_path)
             generated = True
         records.append(
             {
@@ -830,6 +1245,21 @@ def write_background_prompt_manifest(output_dir: Path, template: dict[str, Any])
     return path
 
 
+_POEM_LINE_REJECT_RE = re.compile(
+    r"^(?:[1-9]\d*[.．、]|[（(]\d+[）)]|[A-F][.．]|[①-⑳]|【|（\d{4}|参考答案)"
+)
+
+
+def is_candidate_poem_line(text: str, layout_rules: dict[str, Any] | None = None) -> bool:
+    text = text.strip()
+    max_chars = (layout_rules or {}).get("poem_line_max_chars", 22)
+    if not text or len(text) > max_chars:
+        return False
+    if _POEM_LINE_REJECT_RE.match(text):
+        return False
+    return True
+
+
 def paragraph_style(
     text: Any,
     pos: int,
@@ -837,9 +1267,12 @@ def paragraph_style(
     fonts: dict[str, str],
     layout_rules: dict[str, Any] | None = None,
     force_reading_prompt: bool = False,
+    force_poem_line: bool = False,
 ) -> dict[str, Any]:
     layout_rules = layout_rules or {}
     underline_ranges = text.get("underline_ranges", []) if isinstance(text, dict) else []
+    bold_ranges = text.get("bold_ranges", []) if isinstance(text, dict) else []
+    word_align = text.get("word_align", None) if isinstance(text, dict) else None
     text = block_text(text)
     yan_mid = fonts.get("title_mid", fonts["title"])
     yan_bold = fonts.get("title_bold", fonts["title"])
@@ -935,6 +1368,19 @@ def paragraph_style(
             "first_line_indent": 0,
             "bar": False,
         }, layout_rules, "author")
+    if not is_answer and text == "祝":
+        return apply_style_rule({
+            "kind": "letter_closing",
+            "font": kai,
+            "size": 14,
+            "leading": 24,
+            "align": "right",
+            "color": config_color(layout_rules, "body_text", "#222222"),
+            "space_before": 2,
+            "space_after": 0,
+            "first_line_indent": 0,
+            "bar": False,
+        }, layout_rules, "letter_closing")
     if not is_answer and is_article_title_text(text, layout_rules):
         return apply_style_rule({
             "kind": "article_title",
@@ -1063,19 +1509,54 @@ def paragraph_style(
             "first_line_indent": 0,
             "bar": False,
         }, layout_rules, "source")
-    return apply_style_rule({
+    if not is_answer and force_poem_line:
+        if is_candidate_poem_line(text, layout_rules):
+            return _poem_line_style(kai, layout_rules)
+        # Dynasty+author line like "【唐】王维" — not a poem line but keeps poem context
+        if re.match(r"^【[^】]{1,4}】.{1,8}$", text):
+            return apply_style_rule({
+                "kind": "author",
+                "font": kai,
+                "size": 13,
+                "leading": 24,
+                "align": "center",
+                "color": config_color(layout_rules, "body_text", "#222222"),
+                "space_before": 0,
+                "space_after": 6,
+                "first_line_indent": 0,
+                "bar": False,
+            }, layout_rules, "author")
+    _align = "right" if word_align == "right" else ("left" if is_answer else "justify")
+    style = apply_style_rule({
         "kind": "answer_body" if is_answer else "body",
         "font": kai,
         "size": 14,
         "leading": 23 if is_answer else 24,
-        "align": "left" if is_answer else "justify",
+        "align": _align,
         "color": config_color(layout_rules, "body_text", "#222222"),
         "space_before": 1,
         "space_after": 3 if is_answer else 2,
-        "first_line_indent": 18 if re.match(r"^[①②③④⑤⑥⑦⑧⑨⑩]", text) else 0,
+        "first_line_indent": 0 if word_align == "right" else (18 if re.match(r"^[①-⑳]", text) else (0 if is_answer else 28)),
         "underline_ranges": underline_ranges,
+        "bold_ranges": bold_ranges,
         "bar": False,
     }, layout_rules, "answer_body" if is_answer else "article_body")
+    return style
+
+
+def _poem_line_style(kai: str, layout_rules: dict[str, Any]) -> dict[str, Any]:
+    return apply_style_rule({
+        "kind": "poem_line",
+        "font": kai,
+        "size": 14,
+        "leading": 28,
+        "align": "center",
+        "color": config_color(layout_rules, "body_text", "#222222"),
+        "space_before": 0,
+        "space_after": 2,
+        "first_line_indent": 0,
+        "bar": False,
+    }, layout_rules, "poem_line")
 
 
 def text_width(text: str, font: str, size: float) -> float:
@@ -1095,7 +1576,7 @@ def wrap_text(text: str, style: dict[str, Any], max_w: float) -> list[str]:
             continue
         test = cur + ch
         if cur and text_width(test, font, size) > max_w:
-            trailing_answer_match = re.search(r"\s+[（(]\s*$", cur)
+            trailing_answer_match = re.search(r"[\s ]+[（(][\s ]*$", cur)
             if trailing_answer_match:
                 prefix = cur[:trailing_answer_match.start()]
                 suffix = cur[trailing_answer_match.start():] + ch
@@ -1123,11 +1604,28 @@ def wrap_text(text: str, style: dict[str, Any], max_w: float) -> list[str]:
 
 
 def avoid_isolated_answer_parentheses(lines: list[str]) -> list[str]:
-    if len(lines) < 2 or not re.match(r"^\s*[（(]\s+[）)]\s*$", lines[-1]):
+    if len(lines) < 2:
+        return lines
+    last = lines[-1]
+    BLANK_SP = r"[\s ]"
+    is_isolated = bool(re.match(rf"^\s*[（(]{BLANK_SP}+[）)]\s*$", last))
+    # Also handle the case where a blank was split: line ends with "   ）" (tail only)
+    is_tail = bool(re.match(rf"^{BLANK_SP}+[）)]\s*$", last)) and not is_isolated
+    if not is_isolated and not is_tail:
         return lines
     previous = lines[-2].rstrip()
     if not previous:
         return lines
+    if is_tail:
+        # Find the opening paren in previous and reunite the blank
+        for k in range(len(previous) - 1, max(-1, len(previous) - 12), -1):
+            if previous[k] in "（(":
+                fragment = previous[k:] + last  # preserve spaces inside blank
+                lines[-2] = previous[:k].rstrip()
+                lines[-1] = " " + fragment.lstrip()
+                if not lines[-2]:
+                    lines.pop(-2)
+                return lines
     move_count = min(len(previous), 4)
     moved = previous[-move_count:]
     lines[-2] = previous[:-move_count]
@@ -1143,9 +1641,13 @@ def rebalance_short_final_line(lines: list[str], style: dict[str, Any], max_w: f
     font = style["font"]
     size = style["size"]
     last = lines[-1]
-    if not last.strip() or re.match(r"^\s*[（(]\s+[）)]\s*$", last):
+    BLANK_SP = r"[\s\u2007]"  # whitespace + figure space (U+2007)
+    if not last.strip() or re.match(rf"^\s*[（(]{BLANK_SP}+[）)]\s*$", last):
         return lines
-    target_w = min(120, max(84, max_w * 0.30))
+    if re.search(rf"[（(]{BLANK_SP}+[）)]", last):
+        return lines  # last line contains an answer blank — don't rebalance
+    min_chars = style.get("min_last_line_chars", 2)
+    target_w = size * min_chars
     if text_width(last, font, size) >= target_w:
         return lines
     prev = lines[-2].rstrip()
@@ -1257,6 +1759,114 @@ def line_x_offset(style: dict[str, Any], first_line: bool) -> float:
     return style.get("left_indent", 0) + indent
 
 
+def _split_line_by_bold(
+    line: str, line_start: int, bold_ranges: list[list[int]]
+) -> list[tuple[str, bool]]:
+    """Split a line string into (segment, is_bold) pairs based on character ranges."""
+    line_end = line_start + len(line)
+    segments: list[tuple[str, bool]] = []
+    pos = 0
+    for start, end in sorted(bold_ranges):
+        seg_start = max(start - line_start, 0)
+        seg_end = min(end - line_start, len(line))
+        if seg_start >= len(line) or seg_end <= 0 or seg_start >= seg_end:
+            continue
+        if pos < seg_start:
+            segments.append((line[pos:seg_start], False))
+        segments.append((line[seg_start:seg_end], True))
+        pos = seg_end
+    if pos < len(line):
+        segments.append((line[pos:], False))
+    return segments or [(line, False)]
+
+
+def _split_for_circled_fallback(text: str) -> list[tuple[str, bool]]:
+    """Split text into (segment, needs_fallback) pairs at ⑪–⑳ characters."""
+    segments: list[tuple[str, bool]] = []
+    buf = ""
+    for ch in text:
+        if ord(ch) in _MISSING_CIRCLED_NUMS:
+            if buf:
+                segments.append((buf, False))
+                buf = ""
+            segments.append((ch, True))
+        else:
+            buf += ch
+    if buf:
+        segments.append((buf, False))
+    return segments or [(text, False)]
+
+
+def _draw_circled_number_fallback(
+    c: canvas.Canvas, x: float, y: float, ch: str, font: str, size: float
+) -> float:
+    """Draw ⑪–⑳ using ArialUnicode fallback font."""
+    char_w = pdfmetrics.stringWidth(ch, font, size)
+    if _CIRCLED_FALLBACK_FONT:
+        c.saveState()
+        c.setFont(_CIRCLED_FALLBACK_FONT, size)
+        c.drawString(x, y, ch)
+        c.restoreState()
+    return char_w
+
+
+def _draw_justified_with_circled_fallback(
+    c: canvas.Canvas,
+    line: str,
+    tx: float,
+    y: float,
+    style: dict[str, Any],
+    extra: float,
+    color_mode: str,
+) -> None:
+    """Draw a justified line char-by-char, switching to fallback font for ⑪–⑳."""
+    base_font = style["font"]
+    size = style["size"]
+    c.setFillColor(color_from_hex(style["color"], (.13, .13, .13), color_mode))
+    cx = tx
+    for i, ch in enumerate(line):
+        if ord(ch) in _MISSING_CIRCLED_NUMS and _CIRCLED_FALLBACK_FONT:
+            c.setFont(_CIRCLED_FALLBACK_FONT, size)
+        else:
+            c.setFont(base_font, size)
+        c.drawString(cx, y, ch)
+        char_w = pdfmetrics.stringWidth(ch, base_font, size)
+        if i < len(line) - 1:
+            cx += char_w + extra
+    c.setFont(base_font, size)
+
+
+def draw_line_with_format(
+    c: canvas.Canvas,
+    line: str,
+    line_start: int,
+    tx: float,
+    y: float,
+    style: dict[str, Any],
+) -> None:
+    """Draw a text line, using the bold font variant for bold_ranges segments."""
+    bold_ranges = style.get("bold_ranges") or []
+    has_fallback = any(ord(ch) in _MISSING_CIRCLED_NUMS for ch in line)
+    if not bold_ranges and not has_fallback:
+        c.drawString(tx, y, line)
+        return
+    base_font = style["font"]
+    bold_font = _BOLD_FONT_MAP.get(base_font, base_font)
+    size = style["size"]
+    cx = tx
+    segs = _split_line_by_bold(line, line_start, bold_ranges) if bold_ranges else [(line, False)]
+    for seg, is_bold in segs:
+        font = bold_font if is_bold else base_font
+        c.setFont(font, size)
+        for subseg, is_fallback in _split_for_circled_fallback(seg):
+            if is_fallback:
+                cx += _draw_circled_number_fallback(c, cx, y, subseg, font, size)
+            else:
+                c.drawString(cx, y, subseg)
+                cx += text_width(subseg, font, size)
+    c.setFont(base_font, size)
+
+
 def draw_paragraph_lines(
     c: canvas.Canvas,
     lines: list[str],
@@ -1328,24 +1938,36 @@ def draw_paragraph_lines(
             style["align"] == "justify"
             and len(line) > 1
             and (line_index < len(lines) - 1 or has_rest)
+            and not re.search(r"_{2,}", line)
+            and not style.get("bold_ranges")
         )
         if should_justify:
             line_width = text_width(line, style["font"], style["size"])
             extra = max(0, (available_w - line_width) / (len(line) - 1))
             if extra > style["size"] * 0.7:
-                c.drawString(tx, c._pagesize[1] - cursor, line)
+                draw_line_with_format(c, line, text_offset, tx, c._pagesize[1] - cursor, style)
                 draw_underlines_for_line(c, line, text_offset, tx, cursor, style, color_mode)
                 text_offset += len(line)
                 first_line = False
                 continue
-            text_obj = c.beginText(tx, c._pagesize[1] - cursor)
-            text_obj.setFont(style["font"], style["size"])
-            text_obj.setFillColor(color_from_hex(style["color"], (.13, .13, .13), color_mode))
-            text_obj.setCharSpace(extra)
-            text_obj.textLine(line)
-            c.drawText(text_obj)
+            if _CIRCLED_FALLBACK_FONT and any(ord(ch) in _MISSING_CIRCLED_NUMS for ch in line):
+                _draw_justified_with_circled_fallback(
+                    c, line, tx, c._pagesize[1] - cursor, style, extra, color_mode
+                )
+            else:
+                text_obj = c.beginText(tx, c._pagesize[1] - cursor)
+                text_obj.setFont(style["font"], style["size"])
+                text_obj.setFillColor(color_from_hex(style["color"], (.13, .13, .13), color_mode))
+                text_obj.setCharSpace(extra)
+                text_obj.textLine(line)
+                c.drawText(text_obj)
+                # Reset Tc to 0: character spacing set inside a BT/ET block persists in PDF
+                # graphics state, causing subsequent drawString calls to render wider.
+                _tc_reset = c.beginText(0, 0)
+                _tc_reset.setCharSpace(0)
+                c.drawText(_tc_reset)
         else:
-            c.drawString(tx, c._pagesize[1] - cursor, line)
+            draw_line_with_format(c, line, text_offset, tx, c._pagesize[1] - cursor, style)
         draw_underlines_for_line(c, line, text_offset, tx, cursor, style, color_mode)
         text_offset += len(line)
         first_line = False
@@ -1370,7 +1992,9 @@ def draw_underlines_for_line(
     c.setStrokeColor(color_from_hex(style["color"], (.13, .13, .13), color_mode))
     c.setLineWidth(0.45)
     y = c._pagesize[1] - cursor - 2.2
-    for start, end in ranges:
+    for rng in ranges:
+        start, end = rng[0], rng[1]
+        n_spaces = rng[2] if len(rng) > 2 else None
         overlap_start = max(start, line_start)
         overlap_end = min(end, line_end)
         if overlap_start >= overlap_end:
@@ -1378,7 +2002,10 @@ def draw_underlines_for_line(
         prefix = line[: overlap_start - line_start]
         segment = line[overlap_start - line_start : overlap_end - line_start]
         x1 = tx + text_width(prefix, style["font"], style["size"])
-        x2 = x1 + text_width(segment, style["font"], style["size"])
+        if n_spaces is not None:
+            x2 = x1 + text_width(" " * n_spaces, style["font"], style["size"])
+        else:
+            x2 = x1 + text_width(segment, style["font"], style["size"])
         c.line(x1, y, x2, y)
 
 
@@ -1405,27 +2032,47 @@ def image_style(fonts: dict[str, str], layout_rules: dict[str, Any]) -> dict[str
         "space_before": 8,
         "space_after": 10,
         "left_indent": 0,
+        "max_height_pt": None,
     }
     return apply_style_rule(style, layout_rules, "image")
 
 
-def image_scaled_size(block: dict[str, Any], available_w: float, max_h: float | None = None) -> tuple[float, float]:
+def image_scaled_size(
+    block: dict[str, Any],
+    available_w: float,
+    max_h: float | None = None,
+    style_max_h: float | None = None,
+) -> tuple[float, float]:
     width_px = max(1, block.get("width_px") or 1)
     height_px = max(1, block.get("height_px") or 1)
+    user_scale = block.get("scale", 1.0)
     scale = available_w / width_px
-    width = available_w
-    height = height_px * scale
-    if max_h is not None and height > max_h:
-        scale = max_h / height_px
+    width = available_w * user_scale
+    height = height_px * scale * user_scale
+    cap = style_max_h if style_max_h else None
+    if max_h is not None:
+        cap = min(cap, max_h) if cap else max_h
+    if cap is not None and height > cap:
+        scale = cap / height_px
         width = width_px * scale
-        height = max_h
+        height = cap
     return width, height
+
+
+IMAGE_CAPTION_LEADING = 22
+IMAGE_CAPTION_SPACE_BEFORE = 2
+
+
+def image_caption_height(block: dict[str, Any]) -> float:
+    if not block.get("caption"):
+        return 0
+    return IMAGE_CAPTION_SPACE_BEFORE + IMAGE_CAPTION_LEADING
 
 
 def image_total_height(block: dict[str, Any], style: dict[str, Any], frame_w: float) -> float:
     available_w = frame_w - 16 - style.get("left_indent", 0)
-    _, height = image_scaled_size(block, available_w)
-    return style["space_before"] + height + style["space_after"]
+    _, height = image_scaled_size(block, available_w, style_max_h=style.get("max_height_pt"))
+    return style["space_before"] + height + image_caption_height(block) + style["space_after"]
 
 
 def draw_image_block(
@@ -1439,31 +2086,147 @@ def draw_image_block(
     available_w = frame["w"] - 16 - left_indent
     y_bottom = frame["y"] + frame["h"] - 6
     cursor = start_cursor + style["space_before"]
-    max_h = max(12, y_bottom - cursor - style["space_after"])
-    draw_w, draw_h = image_scaled_size(block, available_w, max_h=max_h)
+    max_h = max(12, y_bottom - cursor - style["space_after"] - image_caption_height(block))
+    draw_w, draw_h = image_scaled_size(block, available_w, max_h=max_h, style_max_h=style.get("max_height_pt"))
     x = frame["x"] + 8 + left_indent + (available_w - draw_w) / 2
     y = c._pagesize[1] - cursor - draw_h
     c.drawImage(ImageReader(BytesIO(block["blob"])), x, y, width=draw_w, height=draw_h, preserveAspectRatio=True, mask="auto")
-    return cursor + draw_h + style["space_after"]
+    cursor += draw_h
+    caption = block.get("caption")
+    if caption:
+        cursor += IMAGE_CAPTION_SPACE_BEFORE + IMAGE_CAPTION_LEADING
+        caption_font = style.get("caption_font", "FZYanSongZhong")
+        caption_size = style.get("caption_size", 12)
+        c.setFont(caption_font, caption_size)
+        c.setFillColor(color_from_hex(style.get("caption_color", "cmyk(0,0,0,0.75)"), (.3, .3, .3), "cmyk"))
+        cx = frame["x"] + 8 + left_indent + available_w / 2
+        c.drawCentredString(cx, c._pagesize[1] - cursor + 6, caption)
+    return cursor + style["space_after"]
 
 
-def table_row_heights(rows: list[list[str]], style: dict[str, Any], table_w: float) -> list[float]:
+IMAGE_ROW_LABEL_LEADING = 20
+IMAGE_ROW_LABEL_SPACE_AFTER = 4
+IMAGE_ROW_COL_GAP = 8
+
+
+def image_row_total_height(block: dict[str, Any], style: dict[str, Any], frame_w: float) -> float:
+    items = block.get("items", [])
+    n = max(1, len(items))
+    available_w = frame_w - 16 - style.get("left_indent", 0)
+    col_w = (available_w - (n - 1) * IMAGE_ROW_COL_GAP) / n
+    max_img_h = 0.0
+    for item in items:
+        _, h = image_scaled_size(item["image"], col_w, style_max_h=style.get("max_height_pt"))
+        max_img_h = max(max_img_h, h)
+    return style["space_before"] + IMAGE_ROW_LABEL_LEADING + IMAGE_ROW_LABEL_SPACE_AFTER + max_img_h + style["space_after"]
+
+
+def draw_image_row(
+    c: canvas.Canvas,
+    block: dict[str, Any],
+    style: dict[str, Any],
+    frame: dict[str, float],
+    start_cursor: float,
+) -> float:
+    items = block.get("items", [])
+    n = max(1, len(items))
+    left_indent = style.get("left_indent", 0)
+    available_w = frame["w"] - 16 - left_indent
+    col_w = (available_w - (n - 1) * IMAGE_ROW_COL_GAP) / n
+    cursor = start_cursor + style["space_before"]
+    x0 = frame["x"] + 8 + left_indent
+    label_font = style.get("caption_font", "FZYanSongZhong")
+    label_size = style.get("caption_size", 12)
+    c.setFont(label_font, label_size)
+    c.setFillColor(color_from_hex(style.get("caption_color", "cmyk(0,0,0,0.75)"), (.3, .3, .3), "cmyk"))
+    for j, item in enumerate(items):
+        cx = x0 + j * (col_w + IMAGE_ROW_COL_GAP) + col_w / 2
+        c.drawCentredString(cx, c._pagesize[1] - cursor - label_size + 3, item["label"])
+    cursor += IMAGE_ROW_LABEL_LEADING + IMAGE_ROW_LABEL_SPACE_AFTER
+    max_img_h = 0.0
+    for j, item in enumerate(items):
+        img = item["image"]
+        draw_w, draw_h = image_scaled_size(img, col_w, style_max_h=style.get("max_height_pt"))
+        x = x0 + j * (col_w + IMAGE_ROW_COL_GAP) + (col_w - draw_w) / 2
+        y = c._pagesize[1] - cursor - draw_h
+        c.drawImage(ImageReader(BytesIO(img["blob"])), x, y, width=draw_w, height=draw_h, preserveAspectRatio=True, mask="auto")
+        max_img_h = max(max_img_h, draw_h)
+    cursor += max_img_h
+    return cursor + style["space_after"]
+
+
+def _cell_image_scaled_height(images: list[dict], col_content_w: float) -> float:
+    """Return height of tallest image when scaled to fit col_content_w width."""
+    max_h = 0.0
+    for img in images:
+        wpx = max(1, img.get("width_px") or 1)
+        hpx = max(1, img.get("height_px") or 1)
+        h = hpx * col_content_w / wpx
+        max_h = max(max_h, h)
+    return max_h
+
+
+def _proportional_col_widths(rows: list[list[str]], table_w: float, font: str, size: float, pad: float) -> list[float]:
+    """Compute column widths: equal base share + proportional to total content.
+
+    Each column gets an equal half-share as a guaranteed floor, then the
+    remaining half is distributed proportional to the sum of all line widths
+    in that column. This ensures the most-content column gets the most width
+    while narrow columns always stay readable.
+    """
     if not rows:
         return []
     col_count = max(len(row) for row in rows)
-    col_w = table_w / max(1, col_count)
+    col_content: list[float] = []
+    min_unit = text_width("一", font, size)
+    for col in range(col_count):
+        total_w = 0.0
+        for row in rows:
+            if col < len(row):
+                for line in row[col].split("\n"):
+                    total_w += text_width(line, font, size)
+        col_content.append(max(total_w, min_unit))
+    base = table_w / (2 * col_count)
+    remaining = table_w - base * col_count
+    total_content = sum(col_content)
+    return [base + remaining * (w / total_content) for w in col_content]
+
+
+def table_row_heights(
+    rows: list[list[str]],
+    style: dict[str, Any],
+    table_w: float,
+    row_images: list[list[list[dict]]] | None = None,
+) -> list[float]:
+    if not rows:
+        return []
+    col_count = max(len(row) for row in rows)
+    # Proportional widths based on content
+    col_widths = _proportional_col_widths(rows, table_w, style["font"], style["size"], style["cell_pad_x"])
+    col_w = table_w / max(1, col_count)  # fallback equal
+    col_content_w = col_w - style["cell_pad_x"] * 2  # will be overridden per-col below
     heights: list[float] = []
-    for row in rows:
-        max_lines = 1
-        for cell in row:
-            lines = wrap_text(cell, style, col_w - style["cell_pad_x"] * 2)
-            max_lines = max(max_lines, len(lines))
-        heights.append(max(24, max_lines * style["leading"] + style["cell_pad_y"] * 2))
+    for row_idx, row in enumerate(rows):
+        max_cell_h = 0.0
+        for col_idx in range(max(len(row), col_count)):
+            cw = (col_widths[col_idx] if col_idx < len(col_widths) else col_w) - style["cell_pad_x"] * 2
+            images = (row_images[row_idx][col_idx]
+                      if row_images and row_idx < len(row_images) and col_idx < len(row_images[row_idx])
+                      else [])
+            if images:
+                img_h = _cell_image_scaled_height(images, cw)
+                cell_h = img_h + style["cell_pad_y"] * 2
+            else:
+                text = row[col_idx] if col_idx < len(row) else ""
+                lines = [l for para in text.split("\n") for l in (wrap_text(para, style, cw) or [""])]
+                cell_h = len(lines) * style["leading"] + style["cell_pad_y"] * 2
+            max_cell_h = max(max_cell_h, cell_h)
+        heights.append(max(24, max_cell_h))
     return heights
 
 
-def table_total_height(rows: list[list[str]], style: dict[str, Any], table_w: float) -> float:
-    return style["space_before"] + sum(table_row_heights(rows, style, table_w)) + style["space_after"]
+def table_total_height(rows: list[list[str]], style: dict[str, Any], table_w: float, row_images: list | None = None) -> float:
+    return style["space_before"] + sum(table_row_heights(rows, style, table_w, row_images)) + style["space_after"]
 
 
 def draw_table_block(
@@ -1475,14 +2238,16 @@ def draw_table_block(
     color_mode: str = "rgb",
 ) -> float:
     rows = table_rows(block)
+    row_images: list[list[list[dict]]] = block.get("row_images", [])
     left_indent = style.get("left_indent", 0)
     x = frame["x"] + 8 + left_indent
     w = frame["w"] - 16 - left_indent
     cursor = start_cursor + style["space_before"]
     y_top_pdf = c._pagesize[1] - cursor
     col_count = max((len(row) for row in rows), default=1)
-    col_w = w / max(1, col_count)
-    heights = table_row_heights(rows, style, w)
+    col_widths = _proportional_col_widths(rows, w, style["font"], style["size"], style["cell_pad_x"])
+    col_w = w / max(1, col_count)  # fallback equal width
+    heights = table_row_heights(rows, style, w, row_images if row_images else None)
     c.setFont(style["font"], style["size"])
     c.setFillColor(color_from_hex(style["color"], (.13, .13, .13), color_mode))
     c.setStrokeColor(color_from_hex(style["border_color"], (.47, .47, .47), color_mode))
@@ -1490,19 +2255,44 @@ def draw_table_block(
     y = y_top_pdf
     for row_index, row in enumerate(rows):
         row_h = heights[row_index]
-        if row_index == 0:
+        has_any_image = any(
+            row_images[row_index][ci] if row_index < len(row_images) and ci < len(row_images[row_index]) else []
+            for ci in range(col_count)
+        ) if row_images and row_index < len(row_images) else False
+        if row_index == 0 and not has_any_image:
             c.setFillColor(color_from_hex(style["header_fill"], (.9, .9, .9), color_mode))
             c.rect(x, y - row_h, w, row_h, fill=1, stroke=0)
             c.setFillColor(color_from_hex(style["color"], (.13, .13, .13), color_mode))
+        cell_x_offset = 0.0
         for col_index in range(col_count):
-            cell_x = x + col_w * col_index
-            c.rect(cell_x, y - row_h, col_w, row_h, fill=0, stroke=1)
-            text = row[col_index] if col_index < len(row) else ""
-            lines = wrap_text(text, style, col_w - style["cell_pad_x"] * 2)
-            line_y = y - style["cell_pad_y"] - style["size"]
-            for line in lines:
-                c.drawString(cell_x + style["cell_pad_x"], line_y, line)
-                line_y -= style["leading"]
+            cw = col_widths[col_index] if col_index < len(col_widths) else col_w
+            col_content_w = cw - style["cell_pad_x"] * 2
+            cell_x = x + cell_x_offset
+            cell_x_offset += cw
+            c.rect(cell_x, y - row_h, cw, row_h, fill=0, stroke=1)
+            images = (row_images[row_index][col_index]
+                      if row_images and row_index < len(row_images) and col_index < len(row_images[row_index])
+                      else [])
+            if images:
+                img = images[0]
+                wpx = max(1, img.get("width_px") or 1)
+                hpx = max(1, img.get("height_px") or 1)
+                scale = col_content_w / wpx
+                draw_w = col_content_w
+                draw_h = hpx * scale
+                # Center image in cell
+                img_x = cell_x + style["cell_pad_x"] + (col_content_w - draw_w) / 2
+                img_y = y - style["cell_pad_y"] - draw_h
+                c.drawImage(ImageReader(BytesIO(img["blob"])), img_x, img_y,
+                            width=draw_w, height=draw_h, preserveAspectRatio=True, mask="auto")
+            else:
+                text = row[col_index] if col_index < len(row) else ""
+                lines = [l for para in text.split("\n") for l in (wrap_text(para, style, col_content_w) or [""])]
+                line_y = y - style["cell_pad_y"] - style["size"]
+                for line in lines:
+                    if line:
+                        c.drawString(cell_x + style["cell_pad_x"], line_y, line)
+                    line_y -= style["leading"]
         y -= row_h
     return cursor + sum(heights) + style["space_after"]
 
@@ -1584,6 +2374,7 @@ def render_flow(
     rendered_pages: list[dict[str, Any]] = []
     spread_slot = 0
     inherited_hanging_indent: float | None = None
+    _prev_style_kind: str | None = None
     while paragraph_idx < len(paragraphs) or remainder is not None:
         if not frame_entries:
             break
@@ -1620,6 +2411,19 @@ def render_flow(
             cursor = frame["y"] + 8
             while paragraph_idx < len(paragraphs):
                 text = remainder if remainder is not None else paragraphs[paragraph_idx]
+                if is_image_row_block(text):
+                    style = image_style(style_fonts, layout_rules)
+                    style = apply_hanging_context_indent(style, inherited_hanging_indent, layout_rules)
+                    row_h = image_row_total_height(text, style, frame["w"])
+                    y_bottom = frame["y"] + frame["h"] - 6
+                    if cursor + row_h > y_bottom and cursor > frame["y"] + 12:
+                        remainder = text
+                        break
+                    cursor = draw_image_row(c, text, style, frame, cursor)
+                    used_sides.add(side)
+                    remainder = None
+                    paragraph_idx += 1
+                    continue
                 if is_image_block(text):
                     style = image_style(style_fonts, layout_rules)
                     style = apply_hanging_context_indent(style, inherited_hanging_indent, layout_rules)
@@ -1628,6 +2432,32 @@ def render_flow(
                     if cursor + image_h > y_bottom and cursor > frame["y"] + 12:
                         remainder = text
                         break
+                    if (
+                        should_keep_with_next(style, layout_rules)
+                        and paragraph_idx + 1 < len(paragraphs)
+                        and cursor > frame["y"] + 12
+                    ):
+                        next_text = paragraphs[paragraph_idx + 1]
+                        if is_image_block(next_text):
+                            next_h = image_total_height(next_text, style, frame["w"])
+                        elif is_table_block(next_text):
+                            next_style = table_style(style_fonts, layout_rules)
+                            next_style = apply_hanging_context_indent(next_style, inherited_hanging_indent, layout_rules)
+                            next_h = table_total_height(table_rows(next_text), next_style, frame["w"] - 16 - next_style.get("left_indent", 0))
+                        else:
+                            next_style = paragraph_style(
+                                next_text,
+                                paragraph_idx + 1,
+                                is_answer,
+                                style_fonts,
+                                layout_rules,
+                            )
+                            if not starts_hanging_context(next_style, layout_rules):
+                                next_style = apply_hanging_context_indent(next_style, inherited_hanging_indent, layout_rules)
+                            next_h = min_block_height_for_keep(next_style)
+                        if cursor + image_h + next_h > y_bottom:
+                            remainder = text
+                            break
                     cursor = draw_image_block(c, text, style, frame, cursor)
                     used_sides.add(side)
                     remainder = None
@@ -1637,11 +2467,37 @@ def render_flow(
                     style = table_style(style_fonts, layout_rules)
                     style = apply_hanging_context_indent(style, inherited_hanging_indent, layout_rules)
                     rows = table_rows(text)
-                    table_h = table_total_height(rows, style, frame["w"] - 16 - style.get("left_indent", 0))
+                    _ri = text.get("row_images") if isinstance(text, dict) else None
+                    left_indent = style.get("left_indent", 0)
+                    tw = frame["w"] - 16 - left_indent
+                    table_h = table_total_height(rows, style, tw, _ri)
                     y_bottom = frame["y"] + frame["h"] - 6
                     if cursor + table_h > y_bottom:
-                        remainder = text
-                        break
+                        rh = table_row_heights(rows, style, tw, _ri)
+                        avail = y_bottom - cursor - style["space_before"] - style["space_after"]
+                        fit_count = 0
+                        accum = 0.0
+                        for h in rh:
+                            if accum + h > avail:
+                                break
+                            accum += h
+                            fit_count += 1
+                        min_rows = 2 if len(rows) > 1 else 1
+                        if fit_count >= min_rows:
+                            fit_block = {"type": "table", "rows": rows[:fit_count]}
+                            if _ri:
+                                fit_block["row_images"] = _ri[:fit_count]
+                            cursor = draw_table_block(c, fit_block, style, frame, cursor, color_mode)
+                            used_sides.add(side)
+                            rest_rows = [rows[0]] + rows[fit_count:] if fit_count > 0 else rows[fit_count:]
+                            rest_block: dict[str, Any] = {"type": "table", "rows": rest_rows}
+                            if _ri:
+                                rest_block["row_images"] = [_ri[0]] + _ri[fit_count:] if fit_count > 0 else _ri[fit_count:]
+                            remainder = rest_block
+                            break
+                        else:
+                            remainder = text
+                            break
                     cursor = draw_table_block(c, text, style, frame, cursor, color_mode)
                     used_sides.add(side)
                     remainder = None
@@ -1656,6 +2512,10 @@ def render_flow(
                         and is_section_title(previous_text, layout_rules)
                         and can_be_structural_reading_prompt(block_text(text), layout_rules)
                     )
+                    force_poem_line = (
+                        not is_answer
+                        and _prev_style_kind in ("article_title", "poem_line", "author")
+                    )
                     style = paragraph_style(
                         text,
                         paragraph_idx,
@@ -1663,13 +2523,16 @@ def render_flow(
                         style_fonts,
                         layout_rules,
                         force_reading_prompt=force_reading_prompt,
+                        force_poem_line=force_poem_line,
                     )
+                    _prev_style_kind = style.get("kind")
                     if ends_hanging_context(style, layout_rules):
                         inherited_hanging_indent = None
                     if not starts_hanging_context(style, layout_rules):
                         style = apply_hanging_context_indent(style, inherited_hanging_indent, layout_rules)
                 if starts_hanging_context(style, layout_rules):
                     inherited_hanging_indent = style.get("left_indent", question_content_indent(layout_rules))
+                lines, rest = fit_lines(text, style, frame, cursor)
                 if (
                     remainder is None
                     and should_keep_with_next(style, layout_rules)
@@ -1679,7 +2542,10 @@ def render_flow(
                     if is_table_block(next_text):
                         next_style = table_style(style_fonts, layout_rules)
                         next_style = apply_hanging_context_indent(next_style, inherited_hanging_indent, layout_rules)
-                        next_h = table_total_height(table_rows(next_text), next_style, frame["w"] - 16 - next_style.get("left_indent", 0))
+                        _tw = frame["w"] - 16 - next_style.get("left_indent", 0)
+                        _rh = table_row_heights(table_rows(next_text), next_style, _tw)
+                        _min_rows = min(2, len(_rh))
+                        next_h = next_style["space_before"] + sum(_rh[:_min_rows]) + next_style["space_after"]
                     elif is_image_block(next_text):
                         next_style = image_style(style_fonts, layout_rules)
                         next_style = apply_hanging_context_indent(next_style, inherited_hanging_indent, layout_rules)
@@ -1695,11 +2561,13 @@ def render_flow(
                         if not starts_hanging_context(next_style, layout_rules):
                             next_style = apply_hanging_context_indent(next_style, inherited_hanging_indent, layout_rules)
                         next_h = min_block_height_for_keep(next_style)
+                    if style.get("kind") == "source":
+                        next_h = max(next_h, 80)
+                    actual_h = style.get("space_before", 0) + max(len(lines), 1) * style.get("leading", 0) + style.get("space_after", 0)
                     y_bottom = frame["y"] + frame["h"] - 6
-                    if cursor + min_block_height_for_keep(style) + next_h > y_bottom and cursor > frame["y"] + 12:
+                    if cursor + actual_h + next_h > y_bottom and cursor > frame["y"] + 12:
                         remainder = text
                         break
-                lines, rest = fit_lines(text, style, frame, cursor)
                 if not lines and rest:
                     remainder = text
                     break
@@ -1720,6 +2588,32 @@ def render_flow(
                     break
                 remainder = None
                 paragraph_idx += 1
+            # When all content is consumed and the last rendered block was an
+            # answer line, fill the remaining frame space with extra lines so
+            # the page doesn't leave a large blank gap.
+            y_bottom = frame["y"] + frame["h"] - 6
+            if (
+                remainder is None
+                and paragraph_idx >= len(paragraphs)
+                and _prev_style_kind == "answer_line"
+                and not is_answer
+                and cursor > frame["y"] + 12
+            ):
+                fill_style = paragraph_style(
+                    ANSWER_LINE_SENTINEL, paragraph_idx, is_answer, style_fonts, layout_rules
+                )
+                fill_style = apply_hanging_context_indent(fill_style, inherited_hanging_indent, layout_rules)
+                line_h = fill_style["leading"] + fill_style.get("space_after", 0)
+                _fill_count = 0
+                while cursor + line_h <= y_bottom and _fill_count < 3:
+                    lines, _ = fit_lines(ANSWER_LINE_SENTINEL, fill_style, frame, cursor)
+                    if not lines:
+                        break
+                    cursor = draw_paragraph_lines(
+                        c, lines, fill_style, frame, cursor, svg_assets, has_rest=False, color_mode=color_mode
+                    )
+                    used_sides.add(side)
+                    _fill_count += 1
         rendered_pages.append(
             {
                 "spread_index": spread_index,
@@ -1792,10 +2686,11 @@ def split_spread_pdf_to_single_pages(
     single_page_h: float,
     used_sides_by_spread_page: list[list[str]] | None = None,
     renumber_pages: bool = True,
+    page_number_start: int = 1,
 ) -> None:
     reader = PdfReader(str(spread_pdf_path))
     writer = PdfWriter()
-    output_page_no = 1
+    output_page_no = page_number_start
     for spread_page_index, page in enumerate(reader.pages):
         used_sides = (
             used_sides_by_spread_page[spread_page_index]
@@ -1871,10 +2766,20 @@ def build_pdf(args: argparse.Namespace) -> dict[str, Any]:
     page_flow_rules = layout_rules.get("page_flow", {})
     dynamic_page_numbers = page_flow_rules.get("dynamic_page_numbers", True)
 
-    background_records = ensure_backgrounds(template, background_dir, spread_page_w, page_h, args.background_dpi)
+    background_records = ensure_backgrounds(template, background_dir, spread_page_w, page_h, args.background_dpi, template_dir=PACKAGE_ROOT)
     prompts_path = write_background_prompt_manifest(output_dir, template)
 
     paragraphs = load_docx_paragraphs(docx_path)
+
+    overrides_path = Path(docx_path).parent / "overrides.json"
+    if overrides_path.exists():
+        import json as _json
+        _overrides = _json.loads(overrides_path.read_text("utf-8"))
+        for idx_str, scale in _overrides.get("image_scales", {}).items():
+            idx = int(idx_str)
+            if idx < len(paragraphs) and is_image_block(paragraphs[idx]):
+                paragraphs[idx]["scale"] = scale
+
     practice, answers = split_practice_and_answers(paragraphs)
 
     pdf_path = output_dir / args.pdf_name
@@ -1894,12 +2799,13 @@ def build_pdf(args: argparse.Namespace) -> dict[str, Any]:
         is_answer=False,
         svg_assets=svg_assets,
         background_mode=args.background_mode,
-        page_number_start=1 if dynamic_page_numbers else None,
+        page_number_start=getattr(args, "page_number_start", 1) if dynamic_page_numbers else None,
         layout_rules=layout_rules,
         allow_repeat=page_flow_rules.get("repeat_last_practice_spread_when_overflow", True),
         color_mode=color_mode,
     )
-    answer_page_number_start = 1 + (
+    _pn_start = getattr(args, "page_number_start", 1)
+    answer_page_number_start = _pn_start + (
         rendered_single_page_count(practice_result)
         if page_mode == "single"
         else len(practice_result["rendered_pages"]) * 2
@@ -1930,6 +2836,7 @@ def build_pdf(args: argparse.Namespace) -> dict[str, Any]:
             page_h,
             used_sides_by_spread_page=rendered_used_sides(practice_result, answer_result),
             renumber_pages=dynamic_page_numbers,
+            page_number_start=_pn_start,
         )
         spread_pdf_path.unlink(missing_ok=True)
 

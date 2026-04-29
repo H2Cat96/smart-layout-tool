@@ -40,7 +40,7 @@
     ],
     "structural_reading_prompt_exclude_patterns": [
       "^[1-9]\\d*[.．、]",
-      "^[A-E][.．]",
+      "^[A-F][.．]",
       "^（\\d+）"
     ],
     "structural_reading_prompt_keywords": [
@@ -61,7 +61,7 @@
         "《"
       ],
       "reject_patterns": [
-        "^[A-E][.．]",
+        "^[A-F][.．]",
         "^[1-9]\\d*[.．、]"
       ],
       "forbidden_punctuation_pattern": "[，。！？；：、,.!?;:]"
@@ -78,7 +78,7 @@
       "^([1-9]\\d*)[.．、]\\s*(.*)$"
     ],
     "option_patterns": [
-      "^([A-E])[.．]\\s*(.*)$"
+      "^([A-F])[.．]\\s*(.*)$"
     ],
     "parenthesized_option_patterns": [
       "^(（\\d+）)\\s*(.*)$"
@@ -170,6 +170,23 @@
       "size": 14,
       "leading": 23,
       "align": "left"
+    },
+    "question_stem": {
+      "wrap_width_factor": 1.0,
+      "min_last_line_chars": 2
+    },
+    "option": {
+      "wrap_width_factor": 1.0,
+      "min_last_line_chars": 2
+    },
+    "article_body": {
+      "min_last_line_chars": 2
+    },
+    "table": {
+      "leading": 18
+    },
+    "image": {
+      "max_height_pt": 260
     }
   },
   "colors": {

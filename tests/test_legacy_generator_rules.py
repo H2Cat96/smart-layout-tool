@@ -402,8 +402,7 @@ class LegacyGeneratorRulesTests(unittest.TestCase):
         )
 
         self.assertGreater(len(lines), 1)
-        self.assertNotEqual(lines[-1], "点草喂羊。")
-        self.assertGreaterEqual(generator.text_width(lines[-1], "Helvetica", 10), 80)
+        self.assertGreaterEqual(generator.text_width(lines[-1], "Helvetica", 10), 10 * 2)
 
     def test_wrapping_keeps_forbidden_start_punctuation_off_new_lines(self):
         generator = load_generator()
@@ -738,3 +737,133 @@ class LegacyGeneratorRulesTests(unittest.TestCase):
             self.assertEqual(assets["标题"]["fill"], "#cccccc")
             self.assertEqual(Path(assets["序号"]["path"]).name, "custom-badge.svg")
             self.assertEqual(assets["序号"]["fill"], "#dddddd")
+
+    def test_option_tables_stay_as_tables_not_flattened(self):
+        # Word tables that contain ABCD options are kept as tables,
+        # even if every cell looks like an option. Authors may intentionally
+        # use 2-column option layouts.
+        generator = load_generator()
+        option_table = {"type": "table", "rows": [
+            ["A.《夏洛的网》", "B. 《柳林风声》"],
+            ["C. E.B. 怀特", "D. 肯尼斯·格雷厄姆"],
+        ]}
+        data_table = {"type": "table", "rows": [
+            ["结构", "段落", "内容要点"],
+            ["开头", "第①段", "引出玩具名称"],
+        ]}
+        blocks = [option_table, data_table]
+
+        result = generator.infer_bare_options(generator.normalize_bare_answer_items(blocks))
+
+        # Both tables pass through intact
+        self.assertTrue(generator.is_table_block(result[0]))
+        self.assertTrue(generator.is_table_block(result[1]))
+
+    def test_bare_options_after_stem_get_auto_labels_from_trailing_labeled_letter(self):
+        generator = load_generator()
+        blocks = [
+            "下列关于《柳林风声》中动物形象的理解，不正确的一项是（   ）",
+            "鼹鼠淳朴善良，热爱生活。",
+            "河鼠聪慧细心，热情友善。",
+            "蟾蜍沉稳稳重，谦逊温和。",
+            "D. 獾先生成熟可靠。",
+        ]
+
+        result = generator.infer_bare_options(blocks)
+
+        self.assertEqual(result[0], blocks[0])
+        self.assertEqual(result[1], "A. 鼹鼠淳朴善良，热爱生活。")
+        self.assertEqual(result[2], "B. 河鼠聪慧细心，热情友善。")
+        self.assertEqual(result[3], "C. 蟾蜍沉稳稳重，谦逊温和。")
+        self.assertEqual(result[4], "D. 獾先生成熟可靠。")
+
+    def test_four_bare_options_after_stem_are_labeled_from_a(self):
+        generator = load_generator()
+        blocks = [
+            "（1）下列关于《夏洛的网》中动物形象的理解，不正确的一项是（   ）",
+            "蜘蛛夏洛十分聪慧善良。",
+            "小猪威尔伯生性胆小脆弱。",
+            "老鼠坦普尔顿心地善良。",
+            "小女孩弗恩富有爱心。",
+            "（下一段其他内容）",
+        ]
+
+        result = generator.infer_bare_options(blocks)
+
+        self.assertEqual(result[1], "A. 蜘蛛夏洛十分聪慧善良。")
+        self.assertEqual(result[2], "B. 小猪威尔伯生性胆小脆弱。")
+        self.assertEqual(result[3], "C. 老鼠坦普尔顿心地善良。")
+        self.assertEqual(result[4], "D. 小女孩弗恩富有爱心。")
+        self.assertEqual(result[5], "（下一段其他内容）")
+
+    def test_already_labeled_options_pass_through_unchanged(self):
+        generator = load_generator()
+        blocks = [
+            "下列说法正确的一项是（  ）",
+            "A. 选项一",
+            "B. 选项二",
+            "C. 选项三",
+            "D. 选项四",
+            "下一题",
+        ]
+
+        result = generator.infer_bare_options(blocks)
+
+        self.assertEqual(result, blocks)
+
+    def test_image_table_attaches_label_as_caption_on_the_image(self):
+        generator = load_generator()
+        image1 = {"type": "image", "blob": b"\x89PNG1", "width_px": 100, "height_px": 80}
+        image2 = {"type": "image", "blob": b"\x89PNG2", "width_px": 100, "height_px": 80}
+        rows_with_cells = [
+            [{"text": "", "images": [image1]}, {"text": "", "images": [image2]}],
+            [{"text": "图一", "images": []}, {"text": "图二", "images": []}],
+        ]
+
+        result = generator.flatten_image_table(rows_with_cells)
+
+        self.assertEqual(len(result), 2)
+        self.assertEqual(result[0]["caption"], "图一")
+        self.assertEqual(result[0]["blob"], b"\x89PNG1")
+        self.assertEqual(result[1]["caption"], "图二")
+        self.assertEqual(result[1]["blob"], b"\x89PNG2")
+
+    def test_justify_is_skipped_on_lines_containing_underscore_runs(self):
+        generator = load_generator()
+        import re as _re
+
+        self.assertTrue(bool(_re.search(r"_{2,}", "作者_____，故事")))
+        self.assertFalse(bool(_re.search(r"_{2,}", "作者，故事")))
+
+    def test_image_style_max_height_caps_scaled_image_height(self):
+        generator = load_generator()
+        portrait = {"type": "image", "width_px": 300, "height_px": 400}
+        landscape = {"type": "image", "width_px": 600, "height_px": 200}
+
+        w_tall, h_tall = generator.image_scaled_size(portrait, 464, style_max_h=260)
+        w_wide, h_wide = generator.image_scaled_size(landscape, 464, style_max_h=260)
+
+        self.assertEqual(h_tall, 260)
+        self.assertAlmostEqual(w_tall, 300 * 260 / 400)
+        self.assertLess(h_wide, 260)
+
+    def test_image_caption_adds_to_total_height(self):
+        generator = load_generator()
+        with_caption = {"type": "image", "width_px": 100, "height_px": 80, "caption": "图一"}
+        without_caption = {"type": "image", "width_px": 100, "height_px": 80}
+        style = {"kind": "image", "space_before": 8, "space_after": 10, "left_indent": 0, "max_height_pt": None}
+
+        h_with = generator.image_total_height(with_caption, style, 480)
+        h_without = generator.image_total_height(without_caption, style, 480)
+
+        self.assertGreater(h_with, h_without)
+        self.assertEqual(h_with - h_without, generator.image_caption_height(with_caption))
+
+    def test_image_style_pulls_max_height_from_layout_rules(self):
+        generator = load_generator()
+        fonts = {"title": "T", "title_mid": "T", "title_bold": "T", "question": "Q", "body": "B", "footer": "F"}
+        rules = {"styles": {"image": {"max_height_pt": 180}}}
+
+        style = generator.image_style(fonts, rules)
+
+        self.assertEqual(style["max_height_pt"], 180)

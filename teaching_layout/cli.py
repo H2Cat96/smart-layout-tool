@@ -22,6 +22,7 @@ def build_command(args: argparse.Namespace) -> None:
         background_mode=args.background_mode,
         page_mode=args.page_mode,
         color_mode=args.color_mode,
+        page_number_start=args.page_number_start,
         templates_dir=Path(args.templates_dir),
     )
     print(json.dumps(manifest["outputs"], ensure_ascii=False, indent=2))
@@ -66,6 +67,7 @@ def create_parser() -> argparse.ArgumentParser:
     build.add_argument("--preview-name", default="preview.png", help="Output preview PNG file name")
     build.add_argument("--title", default="teaching-layout-output", help="PDF metadata title")
     build.add_argument("--background-mode", choices=["white", "image"], default="white")
+    build.add_argument("--page-number-start", type=int, default=1, help="First page number in this PDF (use for combined books)")
     build.add_argument(
         "--page-mode",
         choices=["single", "spread"],
