@@ -74,7 +74,6 @@ DEFAULT_CONTENT_DETECTION = {
         "max_length": 12,
         "reject_prefixes": ["【", "（", "(", "“", "《"],
         "reject_patterns": [r"^[A-E][.．]", r"^[1-9]\d*[.．、]", r"^祝$", r"^[X\d]+年[X\d]+月[X\d]+日$"],
-        "forbidden_punctuation_pattern": r"[，。！？；：、,.!?;:]",
     },
     "author_names": ["贾平凹"],
     "source_patterns": [r"^（.*）$"],
@@ -177,6 +176,21 @@ def question_content_indent(layout_rules: dict[str, Any], fallback: float = 28) 
     rule = layout_rules.get("styles", {}).get("question_content", {})
     stem_rule = layout_rules.get("styles", {}).get("question_stem", {})
     return rule.get("left_indent", stem_rule.get("left_indent", fallback))
+
+
+def apply_answer_line_context_spacing(
+    style: dict[str, Any],
+    previous_style_kind: str | None,
+    layout_rules: dict[str, Any],
+) -> dict[str, Any]:
+    if style.get("kind") != "answer_line" or previous_style_kind == "answer_line":
+        return style
+    first_space_before = layout_rules.get("styles", {}).get("answer_line", {}).get("first_space_before", 6)
+    if not first_space_before:
+        return style
+    adjusted = dict(style)
+    adjusted["space_before"] = adjusted.get("space_before", 0) + first_space_before
+    return adjusted
 
 
 def marker_indent(marker_text: str, size: float, min_indent: float = 22, gap: float = 4) -> float:
@@ -301,12 +315,16 @@ def is_article_title_text(text: str, layout_rules: dict[str, Any] | None = None)
         return False
     if matches_any(rule["reject_patterns"], text):
         return False
-    return not re.search(rule["forbidden_punctuation_pattern"], text)
+    return True
 
 
 def normalize_answer_label(text: str, layout_rules: dict[str, Any] | None = None) -> str | None:
     normalization = merged_rule_section(layout_rules, "normalization", DEFAULT_NORMALIZATION)
     return normalization["answer_labels"].get(text)
+
+
+def is_answer_main_title(text: str) -> bool:
+    return bool(re.search(r"(?:参考)?答案与解析[:：]?$", text.strip()))
 
 
 def clean_text(text: str) -> str:
@@ -336,27 +354,45 @@ def _paragraph_has_fill_in_blanks(paragraph: Any) -> bool:
     )
 
 
-def paragraph_fill_in_text(paragraph: Any) -> str:
-    """Build paragraph text replacing blank underlined runs with underscore fill-in markers."""
-    parts: list[str] = []
+def _fill_in_text_units(paragraph: Any) -> list[tuple[str, bool]]:
+    units: list[tuple[str, bool]] = []
     for run in paragraph.runs:
-        t = re.sub(r"[\r\n\t]+", " ", run.text)
-        if not t.strip() and "<w:u" in run._element.xml:
-            n = max(1, len(t) // 4)
-            parts.append("_" * n)
-        else:
-            parts.append(t)
-    return "".join(parts).strip()
+        raw = re.sub(r"[\r\n\t]+", " ", run.text)
+        if not raw:
+            continue
+        has_u = "<w:u" in run._element.xml
+        is_protected_blank = not raw.strip() and has_u
+        units.extend((ch, is_protected_blank) for ch in raw)
+    return units
+
+
+def _fill_in_trim_bounds(paragraph: Any) -> tuple[int, int]:
+    units = _fill_in_text_units(paragraph)
+    start = 0
+    while start < len(units) and units[start][0].isspace() and not units[start][1]:
+        start += 1
+    end = len(units)
+    while end > start and units[end - 1][0].isspace() and not units[end - 1][1]:
+        end -= 1
+    return start, end
+
+
+def paragraph_fill_in_text(paragraph: Any) -> str:
+    """Build paragraph text preserving underlined blanks and trimming only padding."""
+    units = _fill_in_text_units(paragraph)
+    start, end = _fill_in_trim_bounds(paragraph)
+    return "".join(ch for ch, _ in units[start:end])
 
 
 def paragraph_underline_ranges(paragraph: Any) -> list[list[int]]:
     """Return character ranges for underline rendering.
 
     For fill-in paragraphs: positions are relative to paragraph_fill_in_text()
-    (blank underlined runs become '_' markers of length max(1, n//4)).
+    (blank underlined runs remain spaces so only the vector underline is visible).
     For vocabulary paragraphs: positions are relative to clean_text() output.
     """
     is_fill_in = _paragraph_has_fill_in_blanks(paragraph)
+    trim_start, trim_end = _fill_in_trim_bounds(paragraph) if is_fill_in else (0, None)
     ranges: list[list[int]] = []
     cursor = 0
     for run in paragraph.runs:
@@ -367,10 +403,16 @@ def paragraph_underline_ranges(paragraph: Any) -> list[list[int]]:
         is_blank = not raw.strip()
         start = cursor
         if is_fill_in and is_blank and has_u:
-            # paragraph_fill_in_text converts this run to "_" * n
-            n = max(1, len(raw) // 4)
-            cursor += n
-            ranges.append([start, cursor, len(raw)])  # 3rd element: original space count for line width
+            cursor += len(raw)
+            end = cursor
+            visible_start = max(start, trim_start)
+            visible_end = min(end, trim_end if trim_end is not None else end)
+            if visible_start < visible_end:
+                ranges.append([
+                    visible_start - trim_start,
+                    visible_end - trim_start,
+                    visible_end - visible_start,
+                ])
         else:
             cursor += len(raw)
             if not is_fill_in and has_u and not is_blank:
@@ -393,6 +435,55 @@ def paragraph_bold_ranges(paragraph: Any) -> list[list[int]]:
     return ranges
 
 
+def shift_inline_ranges(ranges: list[list[int]], offset: int, max_len: int) -> list[list[int]]:
+    shifted: list[list[int]] = []
+    for rng in ranges:
+        start = max(0, rng[0] - offset)
+        end = min(max_len, rng[1] - offset)
+        if start >= end:
+            continue
+        next_rng = [start, end]
+        if len(rng) > 2:
+            next_rng.append(rng[2])
+        shifted.append(next_rng)
+    return shifted
+
+
+def offset_inline_ranges(ranges: list[list[int]], offset: int) -> list[list[int]]:
+    shifted: list[list[int]] = []
+    for rng in ranges:
+        next_rng = [rng[0] + offset, rng[1] + offset]
+        if len(rng) > 2:
+            next_rng.append(rng[2])
+        shifted.append(next_rng)
+    return shifted
+
+
+def map_body_inline_ranges(
+    ranges: list[list[int]],
+    original_body_start: int,
+    display_body_start: int,
+    display_len: int,
+) -> list[list[int]]:
+    delta = display_body_start - original_body_start
+    mapped: list[list[int]] = []
+    for rng in ranges:
+        if rng[1] <= original_body_start:
+            start, end = rng[0], rng[1]
+        else:
+            start = rng[0] + delta if rng[0] >= original_body_start else rng[0]
+            end = rng[1] + delta
+        start = max(0, min(display_len, start))
+        end = max(0, min(display_len, end))
+        if start >= end:
+            continue
+        next_rng = [start, end]
+        if len(rng) > 2:
+            next_rng.append(rng[2])
+        mapped.append(next_rng)
+    return mapped
+
+
 def clean_cell_text(text: str) -> str:
     return re.sub(r"[\r\n\t]+", " ", text).strip()
 
@@ -409,6 +500,38 @@ def cell_text_with_fill_ins(cell: Any) -> str:
         if t:
             parts.append(t)
     return "\n".join(parts)
+
+
+def cell_text_and_underline_ranges(cell: Any) -> tuple[str, list[list[int]]]:
+    """Return table-cell text plus underline ranges using original blank widths."""
+    parts: list[str] = []
+    ranges: list[list[int]] = []
+    cursor = 0
+    for p in cell.paragraphs:
+        para_parts: list[str] = []
+        para_cursor = 0
+        is_fill_in = _paragraph_has_fill_in_blanks(p)
+        for run in p.runs:
+            raw = re.sub(r"[\r\n\t]+", " ", run.text)
+            if not raw:
+                continue
+            has_u = "<w:u" in run._element.xml
+            is_blank = not raw.strip()
+            start = cursor + para_cursor
+            para_parts.append(raw)
+            para_cursor += len(raw)
+            if is_fill_in and is_blank and has_u:
+                ranges.append([start, cursor + para_cursor, len(raw)])
+            elif not is_fill_in and has_u and not is_blank:
+                ranges.append([start, cursor + para_cursor])
+        para_text = "".join(para_parts).strip()
+        if not para_text:
+            continue
+        if parts:
+            cursor += 1
+        parts.append(para_text)
+        cursor += len(para_text)
+    return "\n".join(parts), ranges
 
 
 def block_text(block: Any) -> str:
@@ -782,14 +905,19 @@ def load_docx_paragraphs(docx_path: Path) -> list[Any]:
             image_blocks = paragraph_image_blocks(p)
             text = paragraph_fill_in_text(p) if _paragraph_has_fill_in_blanks(p) else clean_text(p.text)
             list_prefix = _paragraph_list_prefix(p, numbering_map, list_counters)
+            list_prefix_len = 0
             if list_prefix and not _LIST_PREFIX_RE.match(text) and not _SOURCE_CITATION_RE.match(text):
                 text = list_prefix + text
+                list_prefix_len = len(list_prefix)
             if not text:
                 blocks.extend(image_blocks)
                 continue
             text = normalize_answer_parentheses(text)
             underline_ranges = paragraph_underline_ranges(p)
             bold_ranges = paragraph_bold_ranges(p)
+            if list_prefix_len:
+                underline_ranges = offset_inline_ranges(underline_ranges, list_prefix_len)
+                bold_ranges = offset_inline_ranges(bold_ranges, list_prefix_len)
             word_align = "right" if p.alignment == 2 else None
             if underline_ranges or bold_ranges or word_align:
                 block: dict[str, Any] = {"type": "paragraph", "text": text}
@@ -813,7 +941,8 @@ def load_docx_paragraphs(docx_path: Path) -> list[Any]:
                     images = cell_image_blocks(cell)
                     if images:
                         table_has_images = True
-                    row_cells.append({"text": cell_text_with_fill_ins(cell), "images": images})
+                    cell_text, cell_underlines = cell_text_and_underline_ranges(cell)
+                    row_cells.append({"text": cell_text, "images": images, "underline_ranges": cell_underlines})
                 rows_with_cells.append(row_cells)
             if not rows_with_cells:
                 continue
@@ -821,6 +950,7 @@ def load_docx_paragraphs(docx_path: Path) -> list[Any]:
                 "type": "table",
                 "rows": [[cell["text"] for cell in row] for row in rows_with_cells],
                 "row_images": [[cell["images"] for cell in row] for row in rows_with_cells],
+                "cell_underline_ranges": [[cell["underline_ranges"] for cell in row] for row in rows_with_cells],
             })
     # After "祝" (letter salutation), the immediately following text line is
     # the closing wish and should also be right-aligned.
@@ -863,7 +993,7 @@ def load_docx_paragraphs(docx_path: Path) -> list[Any]:
 
 def split_practice_and_answers(paragraphs: list[Any]) -> tuple[list[Any], list[Any]]:
     split_idx = next(
-        (i for i, text in enumerate(paragraphs) if "参考答案" in block_text(text)),
+        (i for i, text in enumerate(paragraphs) if is_answer_main_title(block_text(text))),
         len(paragraphs),
     )
     return paragraphs[:split_idx], paragraphs[split_idx:]
@@ -1314,7 +1444,7 @@ def paragraph_style(
             else config_color(layout_rules, "practice_bar", "#fce5e4"),
             "display_text": section_display_text(text),
         }, layout_rules, "section_title")
-    if pos == 0 or is_lesson_title(text, layout_rules) or (is_answer and text == "参考答案与解析"):
+    if pos == 0 or is_lesson_title(text, layout_rules) or (is_answer and is_answer_main_title(text)):
         return apply_style_rule({
             "kind": "main_title",
             "font": yan_mid,
@@ -1381,19 +1511,6 @@ def paragraph_style(
             "first_line_indent": 0,
             "bar": False,
         }, layout_rules, "letter_closing")
-    if not is_answer and is_article_title_text(text, layout_rules):
-        return apply_style_rule({
-            "kind": "article_title",
-            "font": yan_mid,
-            "size": 14,
-            "leading": 24,
-            "align": "center",
-            "color": config_color(layout_rules, "body_text", "#222222"),
-            "space_before": 0,
-            "space_after": 4,
-            "first_line_indent": 0,
-            "bar": False,
-        }, layout_rules, "article_title")
     answer_label_text = normalize_answer_label(text, layout_rules) if is_answer else None
     if answer_label_text:
         return apply_style_rule({
@@ -1411,6 +1528,13 @@ def paragraph_style(
         }, layout_rules, "answer_label")
     if question_match and not is_answer:
         number, body = question_match.groups()
+        body_start = question_match.start(2)
+        display_start = body_start
+        for rng in underline_ranges:
+            if rng[0] < body_start <= rng[1]:
+                display_start = min(display_start, rng[0])
+        display_body = text[display_start:]
+        shifted_underlines = shift_inline_ranges(underline_ranges, display_start, len(display_body))
         return apply_style_rule({
             "kind": "question_numbered",
             "font": yan_regular,
@@ -1422,11 +1546,12 @@ def paragraph_style(
             "space_after": 2,
             "first_line_indent": 0,
             "bar": False,
-            "display_text": body,
+            "display_text": display_body,
             "badge_text": number,
             "badge_color": config_color(layout_rules, "practice_red", "#cc0000"),
             "left_indent": 36,
-            "wrap_width_factor": 0.84,
+            "wrap_width_factor": 1.0 if shifted_underlines else 0.84,
+            "underline_ranges": shifted_underlines,
         }, layout_rules, "question_stem")
     if question_match and is_answer:
         number, body = question_match.groups()
@@ -1466,6 +1591,15 @@ def paragraph_style(
         }, layout_rules, "option")
     if parenthesized_option_match:
         marker, body = parenthesized_option_match.groups()
+        display_text = f"{marker} {body}"
+        body_start = parenthesized_option_match.start(2)
+        display_body_start = len(marker) + 1
+        display_underlines = map_body_inline_ranges(
+            underline_ranges, body_start, display_body_start, len(display_text)
+        )
+        display_bolds = map_body_inline_ranges(
+            bold_ranges, body_start, display_body_start, len(display_text)
+        )
         return apply_style_rule({
             "kind": "option",
             "font": kai,
@@ -1477,11 +1611,13 @@ def paragraph_style(
             "space_after": 1,
             "first_line_indent": 0,
             "bar": False,
-            "display_text": f"{marker} {body}",
+            "display_text": display_text,
             "marker_text": marker,
             "inline_marker": True,
             "left_indent": 36,
             "wrap_width_factor": 0.84,
+            "underline_ranges": display_underlines,
+            "bold_ranges": display_bolds,
         }, layout_rules, "option")
     if not is_answer and judgement_match:
         return apply_style_rule({
@@ -1509,6 +1645,19 @@ def paragraph_style(
             "first_line_indent": 0,
             "bar": False,
         }, layout_rules, "source")
+    if not is_answer and is_article_title_text(text, layout_rules):
+        return apply_style_rule({
+            "kind": "article_title",
+            "font": yan_mid,
+            "size": 14,
+            "leading": 24,
+            "align": "center",
+            "color": config_color(layout_rules, "body_text", "#222222"),
+            "space_before": 0,
+            "space_after": 4,
+            "first_line_indent": 0,
+            "bar": False,
+        }, layout_rules, "article_title")
     if not is_answer and force_poem_line:
         if is_candidate_poem_line(text, layout_rules):
             return _poem_line_style(kai, layout_rules)
@@ -1939,6 +2088,7 @@ def draw_paragraph_lines(
             and len(line) > 1
             and (line_index < len(lines) - 1 or has_rest)
             and not re.search(r"_{2,}", line)
+            and not style.get("underline_ranges")
             and not style.get("bold_ranges")
         )
         if should_justify:
@@ -1991,7 +2141,7 @@ def draw_underlines_for_line(
     line_end = line_start + len(line)
     c.setStrokeColor(color_from_hex(style["color"], (.13, .13, .13), color_mode))
     c.setLineWidth(0.45)
-    y = c._pagesize[1] - cursor - 2.2
+    y = c._pagesize[1] - cursor - 4.0
     for rng in ranges:
         start, end = rng[0], rng[1]
         n_spaces = rng[2] if len(rng) > 2 else None
@@ -2003,7 +2153,7 @@ def draw_underlines_for_line(
         segment = line[overlap_start - line_start : overlap_end - line_start]
         x1 = tx + text_width(prefix, style["font"], style["size"])
         if n_spaces is not None:
-            x2 = x1 + text_width(" " * n_spaces, style["font"], style["size"])
+            x2 = x1 + text_width(" " * (overlap_end - overlap_start), style["font"], style["size"])
         else:
             x2 = x1 + text_width(segment, style["font"], style["size"])
         c.line(x1, y, x2, y)
@@ -2239,6 +2389,7 @@ def draw_table_block(
 ) -> float:
     rows = table_rows(block)
     row_images: list[list[list[dict]]] = block.get("row_images", [])
+    cell_underline_ranges: list[list[list[list[int]]]] = block.get("cell_underline_ranges", [])
     left_indent = style.get("left_indent", 0)
     x = frame["x"] + 8 + left_indent
     w = frame["w"] - 16 - left_indent
@@ -2287,11 +2438,36 @@ def draw_table_block(
                             width=draw_w, height=draw_h, preserveAspectRatio=True, mask="auto")
             else:
                 text = row[col_index] if col_index < len(row) else ""
-                lines = [l for para in text.split("\n") for l in (wrap_text(para, style, col_content_w) or [""])]
+                underline_ranges = (
+                    cell_underline_ranges[row_index][col_index]
+                    if row_index < len(cell_underline_ranges)
+                    and col_index < len(cell_underline_ranges[row_index])
+                    else []
+                )
+                line_entries: list[tuple[str, int]] = []
+                text_offset = 0
+                for para in text.split("\n"):
+                    para_lines = wrap_text(para, style, col_content_w) or [""]
+                    para_offset = text_offset
+                    for line in para_lines:
+                        line_entries.append((line, para_offset))
+                        para_offset += len(line)
+                    text_offset += len(para) + 1
                 line_y = y - style["cell_pad_y"] - style["size"]
-                for line in lines:
+                underline_style = dict(style)
+                underline_style["underline_ranges"] = underline_ranges
+                for line, line_start in line_entries:
                     if line:
                         c.drawString(cell_x + style["cell_pad_x"], line_y, line)
+                        draw_underlines_for_line(
+                            c,
+                            line,
+                            line_start,
+                            cell_x + style["cell_pad_x"],
+                            c._pagesize[1] - line_y,
+                            underline_style,
+                            color_mode,
+                        )
                     line_y -= style["leading"]
         y -= row_h
     return cursor + sum(heights) + style["space_after"]
@@ -2507,6 +2683,7 @@ def render_flow(
                     style = remainder_style(text)
                 else:
                     previous_text = block_text(paragraphs[paragraph_idx - 1]) if paragraph_idx > 0 else ""
+                    previous_style_kind = _prev_style_kind
                     force_reading_prompt = (
                         not is_answer
                         and is_section_title(previous_text, layout_rules)
@@ -2525,6 +2702,7 @@ def render_flow(
                         force_reading_prompt=force_reading_prompt,
                         force_poem_line=force_poem_line,
                     )
+                    style = apply_answer_line_context_spacing(style, previous_style_kind, layout_rules)
                     _prev_style_kind = style.get("kind")
                     if ends_hanging_context(style, layout_rules):
                         inherited_hanging_indent = None

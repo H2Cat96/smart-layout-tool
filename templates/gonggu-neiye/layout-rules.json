@@ -63,8 +63,7 @@
       "reject_patterns": [
         "^[A-F][.．]",
         "^[1-9]\\d*[.．、]"
-      ],
-      "forbidden_punctuation_pattern": "[，。！？；：、,.!?;:]"
+      ]
     },
     "author_names": [
       "贾平凹"
@@ -170,6 +169,9 @@
       "size": 14,
       "leading": 23,
       "align": "left"
+    },
+    "answer_line": {
+      "first_space_before": 6
     },
     "question_stem": {
       "wrap_width_factor": 1.0,

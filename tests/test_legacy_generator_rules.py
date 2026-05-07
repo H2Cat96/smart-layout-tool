@@ -1,6 +1,7 @@
 import importlib.util
 import tempfile
 import unittest
+from unittest import mock
 from io import BytesIO
 from pathlib import Path
 
@@ -56,6 +57,198 @@ class LegacyGeneratorRulesTests(unittest.TestCase):
             self.assertEqual(blocks[2]["width_px"], 120)
             self.assertEqual(blocks[2]["height_px"], 60)
 
+    def test_table_cells_preserve_fill_in_blank_widths(self):
+        generator = load_generator()
+        with tempfile.TemporaryDirectory() as tmp:
+            docx_path = Path(tmp) / "table-fill.docx"
+            doc = Document()
+            table = doc.add_table(rows=1, cols=1)
+            p = table.cell(0, 0).paragraphs[0]
+            p.add_run("答案（")
+            p.add_run(" " * 16).underline = True
+            p.add_run("）")
+            doc.save(docx_path)
+
+            blocks = generator.load_docx_paragraphs(docx_path)
+
+            self.assertEqual(blocks[0]["rows"], [["答案（" + " " * 16 + "）"]])
+            self.assertEqual(blocks[0]["cell_underline_ranges"], [[[[3, 19, 16]]]])
+
+    def test_list_prefix_shifts_paragraph_underline_ranges(self):
+        generator = load_generator()
+        with tempfile.TemporaryDirectory() as tmp:
+            docx_path = Path(tmp) / "numbered-fill.docx"
+            doc = Document()
+            p = doc.add_paragraph()
+            p.add_run("题干：")
+            p.add_run(" " * 8).underline = True
+            p.add_run("。")
+            doc.save(docx_path)
+
+            with mock.patch.object(generator, "_paragraph_list_prefix", return_value="1."):
+                blocks = generator.load_docx_paragraphs(docx_path)
+
+            self.assertEqual(blocks[0]["text"], "1.题干：" + " " * 8 + "。")
+            self.assertEqual(blocks[0]["underline_ranges"], [[5, 13, 8]])
+
+    def test_paragraph_fill_in_blanks_keep_spaces_not_visible_underscores(self):
+        generator = load_generator()
+        doc = Document()
+        p = doc.add_paragraph()
+        p.add_run("无法实现")
+        p.add_run(" " * 16).underline = True
+        p.add_run("。")
+
+        self.assertEqual(generator.paragraph_fill_in_text(p), "无法实现" + " " * 16 + "。")
+        self.assertEqual(generator.paragraph_underline_ranges(p), [[4, 20, 16]])
+
+    def test_trailing_underlined_blank_survives_plain_padding_trim(self):
+        generator = load_generator()
+        doc = Document()
+        p = doc.add_paragraph()
+        p.add_run("少：")
+        p.add_run(" " * 15).underline = True
+        p.add_run(" " * 12)
+
+        self.assertEqual(generator.paragraph_fill_in_text(p), "少：" + " " * 15)
+        self.assertEqual(generator.paragraph_underline_ranges(p), [[2, 17, 15]])
+
+    def test_split_fill_in_underline_only_draws_current_line_segment(self):
+        generator = load_generator()
+
+        class FakeCanvas:
+            _pagesize = (200, 200)
+
+            def __init__(self):
+                self.lines = []
+
+            def setStrokeColor(self, color):
+                pass
+
+            def setLineWidth(self, width):
+                pass
+
+            def line(self, x1, y1, x2, y2):
+                self.lines.append((x1, y1, x2, y2))
+
+        c = FakeCanvas()
+        style = {
+            "font": "Helvetica",
+            "size": 12,
+            "color": "#222222",
+            "underline_ranges": [[3, 19, 16]],
+        }
+
+        generator.draw_underlines_for_line(c, "答案（    ", 0, 10, 40, style)
+
+        self.assertEqual(len(c.lines), 1)
+        self.assertAlmostEqual(c.lines[0][2] - c.lines[0][0], generator.text_width(" " * 4, "Helvetica", 12))
+
+    def test_forbidden_line_start_punctuation_may_exceed_width(self):
+        generator = load_generator()
+        style = {
+            "font": "Helvetica",
+            "size": 12,
+        }
+        max_w = generator.text_width("abcdef", "Helvetica", 12)
+
+        lines = generator.wrap_text("abcdef,ghijkl", style, max_w)
+
+        self.assertEqual(lines[0], "abcdef,")
+        self.assertGreater(generator.text_width(lines[0], "Helvetica", 12), max_w)
+
+    def test_numbered_question_preserves_shifted_underline_ranges(self):
+        generator = load_generator()
+        block = {
+            "type": "paragraph",
+            "text": "1.题干：" + " " * 8 + "。",
+            "underline_ranges": [[5, 13, 8]],
+        }
+
+        style = generator.paragraph_style(
+            block,
+            3,
+            False,
+            {"body": "FZKaiGBK", "title": "FZYanSongZhong", "question": "FZYanSongZhun"},
+            {},
+        )
+
+        self.assertEqual(style["display_text"], "题干：" + " " * 8 + "。")
+        self.assertEqual(style["underline_ranges"], [[3, 11, 8]])
+        self.assertEqual(style["wrap_width_factor"], 1.0)
+
+    def test_numbered_question_keeps_underlined_blank_after_marker(self):
+        generator = load_generator()
+        block = {
+            "type": "paragraph",
+            "text": "2." + " " * 8 + "、白朴",
+            "underline_ranges": [[2, 10, 8]],
+        }
+
+        style = generator.paragraph_style(
+            block,
+            3,
+            False,
+            {"body": "FZKaiGBK", "title": "FZYanSongZhong", "question": "FZYanSongZhun"},
+            {},
+        )
+
+        self.assertEqual(style["display_text"], " " * 8 + "、白朴")
+        self.assertEqual(style["underline_ranges"], [[0, 8, 8]])
+
+    def test_parenthesized_option_preserves_shifted_inline_ranges(self):
+        generator = load_generator()
+        block = {
+            "type": "paragraph",
+            "text": "（1）少：" + " " * 8,
+            "underline_ranges": [[5, 13, 8]],
+            "bold_ranges": [[3, 4]],
+        }
+
+        style = generator.paragraph_style(
+            block,
+            3,
+            False,
+            {"body": "FZKaiGBK", "title": "FZYanSongZhong", "question": "FZYanSongZhun"},
+            {},
+        )
+
+        self.assertEqual(style["display_text"], "（1） 少：" + " " * 8)
+        self.assertEqual(style["underline_ranges"], [[6, 14, 8]])
+        self.assertEqual(style["bold_ranges"], [[4, 5]])
+
+    def test_wrapped_underline_uses_line_local_prefix_width(self):
+        generator = load_generator()
+
+        class FakeCanvas:
+            _pagesize = (300, 300)
+
+            def __init__(self):
+                self.lines = []
+
+            def setStrokeColor(self, color):
+                pass
+
+            def setLineWidth(self, width):
+                pass
+
+            def line(self, x1, y1, x2, y2):
+                self.lines.append((x1, y1, x2, y2))
+
+        c = FakeCanvas()
+        style = {
+            "font": "Helvetica",
+            "size": 12,
+            "color": "#222222",
+            "underline_ranges": [[10, 14, 4]],
+        }
+
+        generator.draw_underlines_for_line(c, "    。", 10, 50, 40, style)
+
+        self.assertEqual(len(c.lines), 1)
+        self.assertAlmostEqual(c.lines[0][0], 50)
+        self.assertAlmostEqual(c.lines[0][2] - c.lines[0][0], generator.text_width(" " * 4, "Helvetica", 12))
+
     def test_font_paths_can_be_relative_to_font_map_directory(self):
         generator = load_generator()
         with tempfile.TemporaryDirectory() as tmp:
@@ -90,6 +283,17 @@ class LegacyGeneratorRulesTests(unittest.TestCase):
         self.assertEqual(normalized[4], "4.（1）地  （2）的  （3）的 地")
         self.assertEqual(normalized[5], "5.（1）的 地 （2）的 得")
         self.assertEqual(normalized[6], "“的”改为“地”；“的”改为“得”")
+
+    def test_split_answers_accepts_lesson_prefixed_answer_title(self):
+        generator = load_generator()
+        practice, answers = generator.split_practice_and_answers([
+            "正文",
+            "第二讲 答案与解析：",
+            "【答案】",
+        ])
+
+        self.assertEqual(practice, ["正文"])
+        self.assertEqual(answers, ["第二讲 答案与解析：", "【答案】"])
 
     def test_pdf_importer_joins_unfinished_sentence_across_pages(self):
         import importlib.util
@@ -287,6 +491,7 @@ class LegacyGeneratorRulesTests(unittest.TestCase):
 
         article_title = generator.paragraph_style("泉", 3, False, fonts, {})
         second_article_title = generator.paragraph_style("一匹骆驼", 39, False, fonts, {})
+        punctuated_article_title = generator.paragraph_style("北京！北京！", 3, False, fonts, {})
         second_reading_prompt = generator.paragraph_style("阅读《一匹骆驼》，完成下面的小题。", 38, False, fonts, {})
         reading_prompt_all_questions = generator.paragraph_style("阅读短文《自然界的时钟》，完成下列各题。", 2, False, fonts, {})
         structural_reading_prompt = generator.paragraph_style("请结合选文完成练习。", 2, False, fonts, {}, force_reading_prompt=True)
@@ -295,6 +500,7 @@ class LegacyGeneratorRulesTests(unittest.TestCase):
         answer_label = generator.paragraph_style("【答案】", 2, True, fonts, {})
         plain_answer_label = generator.paragraph_style("答案：", 2, True, fonts, {})
         plain_analysis_label = generator.paragraph_style("解析:", 2, True, fonts, {})
+        answer_main_title = generator.paragraph_style("第二讲 答案与解析：", 4, True, fonts, {})
         answer_section = generator.paragraph_style("【练习二】", 1, True, fonts, {})
         plain_section = generator.paragraph_style("练习一", 0, False, fonts, {})
         lesson_title = generator.paragraph_style("第一讲", 6, False, fonts, {})
@@ -311,6 +517,8 @@ class LegacyGeneratorRulesTests(unittest.TestCase):
         self.assertEqual(article_title["font"], "TitleMid")
         self.assertEqual(second_article_title["kind"], "article_title")
         self.assertEqual(second_article_title["font"], "TitleMid")
+        self.assertEqual(punctuated_article_title["kind"], "article_title")
+        self.assertEqual(punctuated_article_title["font"], "TitleMid")
         self.assertEqual(second_reading_prompt["kind"], "reading_prompt")
         self.assertEqual(reading_prompt_all_questions["kind"], "reading_prompt")
         self.assertEqual(reading_prompt_all_questions["font"], "TitleMid")
@@ -329,6 +537,8 @@ class LegacyGeneratorRulesTests(unittest.TestCase):
         self.assertNotIn("bold_rule", answer_label)
         self.assertEqual(plain_answer_label["display_text"], "【答案】")
         self.assertEqual(plain_analysis_label["display_text"], "【解析】")
+        self.assertEqual(answer_main_title["kind"], "main_title")
+        self.assertEqual(answer_main_title["title_marker_asset"], "参考答案")
         self.assertEqual(answer_section["kind"], "section")
         self.assertTrue(answer_section["bar"])
         self.assertEqual(plain_section["kind"], "section")
@@ -495,6 +705,17 @@ class LegacyGeneratorRulesTests(unittest.TestCase):
         self.assertNotIn("badge_text", remainder["style"])
         self.assertNotIn("marker_text", remainder["style"])
         self.assertTrue(generator.ends_hanging_context({"kind": "topic_heading"}))
+
+    def test_first_answer_line_gets_extra_spacing_only_after_non_line(self):
+        generator = load_generator()
+        rules = {"styles": {"answer_line": {"first_space_before": 6}}}
+        answer_line = {"kind": "answer_line", "space_before": 0, "leading": 22}
+
+        first_line = generator.apply_answer_line_context_spacing(answer_line, "question_numbered", rules)
+        second_line = generator.apply_answer_line_context_spacing(answer_line, "answer_line", rules)
+
+        self.assertEqual(first_line["space_before"], 6)
+        self.assertEqual(second_line["space_before"], 0)
 
     def test_source_and_question_keep_with_next_content(self):
         generator = load_generator()
