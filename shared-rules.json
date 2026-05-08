@@ -1,0 +1,94 @@
+{
+  "schema_version": "0.1",
+  "description": "跨模板公用排版规则。模板级 layout-rules.json 可覆盖其中任何字段。",
+  "inline_formatting": {
+    "circled_numbers": {
+      "font_path": "/System/Library/Fonts/Supplemental/AppleMyungjo.ttf",
+      "fallback_font_paths": [
+        "/System/Library/Fonts/Supplemental/AppleGothic.ttf"
+      ],
+      "ranges": ["U+2460-U+2473", "U+3251-U+325F"]
+    },
+    "emphasis_dots": {
+      "radius_factor": 0.06,
+      "drop_factor": 0.25
+    },
+    "ruby_pinyin": {
+      "size": 7,
+      "gap_pt": 4
+    },
+    "superscript": {
+      "size_factor": 0.7,
+      "rise_factor": 0.35
+    },
+    "bold_font_map": {
+      "FZKaiGBK": "FZYanSongZhun",
+      "FZYanSongZhun": "FZYanSongCu",
+      "FZYanSongZhong": "FZYanSongCu",
+      "AlibabaPuHuiTiR": "AlibabaPuHuiTiB",
+      "AlibabaPuHuiTiL": "AlibabaPuHuiTiB",
+      "AlibabaPuHuiTiM": "AlibabaPuHuiTiB"
+    }
+  },
+  "markers": {
+    "question_patterns": ["^([1-9]\\d*)[.．、]\\s*(.*)$"],
+    "option_patterns": ["^([A-F])[.．]\\s*(.*)$"],
+    "parenthesized_option_patterns": ["^(（\\d+）)\\s*(.*)$"],
+    "judgement_patterns": ["^（\\d+）"]
+  },
+  "normalization": {
+    "answer_labels": {
+      "【答案】": "【答案】",
+      "答案：": "【答案】",
+      "答案:": "【答案】",
+      "【解析】": "【解析】",
+      "解析：": "【解析】",
+      "解析:": "【解析】"
+    }
+  },
+  "hanging": {
+    "start_fields": ["marker_text", "badge_text"],
+    "end_kinds": [
+      "main_title",
+      "topic_heading",
+      "reading_prompt",
+      "article_title",
+      "author",
+      "section",
+      "source",
+      "answer_label"
+    ],
+    "inherit_kinds": [
+      "body",
+      "answer_body",
+      "answer_line",
+      "option",
+      "question_numbered",
+      "table",
+      "image"
+    ],
+    "clear_first_line_indent_kinds": [
+      "body",
+      "answer_body",
+      "answer_line"
+    ]
+  },
+  "page_flow": {
+    "keep_with_next_kinds": [
+      "main_title",
+      "section",
+      "topic_heading",
+      "article_title",
+      "answer_label",
+      "source",
+      "question_numbered"
+    ]
+  },
+  "typography": {
+    "min_underline_width_pt": 10,
+    "forbidden_line_start": "，。！？；：、,.!?;:)]}）】》〉」』\"'％‰℃…",
+    "forbidden_line_end": "([{（【《〈「『\"'",
+    "avoid_isolated_answer_parentheses": true,
+    "min_last_line_chars": 2
+  }
+}

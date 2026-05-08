@@ -129,6 +129,33 @@ def load_optional_json(path: str | Path | None) -> dict[str, Any]:
     return json.loads(config_path.read_text(encoding="utf-8"))
 
 
+def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
+    """Recursively merge override into base. Lists and scalars are replaced, dicts are merged."""
+    merged = dict(base)
+    for key, value in override.items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = _deep_merge(merged[key], value)
+        else:
+            merged[key] = value
+    return merged
+
+
+def load_shared_rules(explicit_path: str | Path | None = None) -> dict[str, Any]:
+    """Load shared-rules.json from explicit path or auto-discover from project root."""
+    if explicit_path:
+        return load_optional_json(explicit_path)
+    search = PACKAGE_ROOT
+    for _ in range(5):
+        candidate = search / "shared-rules.json"
+        if candidate.exists():
+            return json.loads(candidate.read_text(encoding="utf-8"))
+        parent = search.parent
+        if parent == search:
+            break
+        search = parent
+    return {}
+
+
 def config_color(layout_rules: dict[str, Any], key: str, default: str) -> str:
     return layout_rules.get("colors", {}).get(key, default)
 
@@ -324,7 +351,45 @@ def normalize_answer_label(text: str, layout_rules: dict[str, Any] | None = None
 
 
 def is_answer_main_title(text: str) -> bool:
-    return bool(re.search(r"(?:参考)?答案与解析[:：]?$", text.strip()))
+    return bool(re.search(r"(?:参考)?答案(?:与|及)解析[:：]?$", text.strip()))
+
+
+_RUBY_PINYIN_RE = re.compile(
+    r"([一-鿿]{1,4})[（(]([a-zA-Zāáǎàēéěèīíǐìōóǒòūúǔùǖǘǚǜü]+(?:\s+[a-zA-Zāáǎàēéěèīíǐìōóǒòūúǔùǖǘǚǜü]+)*)[）)]"
+)
+
+
+def extract_ruby_annotations(text: str) -> tuple[str, list[dict[str, Any]]]:
+    """Extract pinyin ruby annotations from text.
+
+    Returns (cleaned_text, annotations) where each annotation is
+    {"start": int, "chars": str, "pinyin": str} referring to positions in cleaned_text.
+    Syllable count in pinyin determines how many chars get annotated (from right).
+    """
+    annotations: list[dict[str, Any]] = []
+    # First pass: collect match info
+    matches = list(_RUBY_PINYIN_RE.finditer(text))
+    if not matches:
+        return text, []
+
+    # Build cleaned text by removing parenthesized pinyin parts
+    cleaned = []
+    last_end = 0
+    for m in matches:
+        full_chars = m.group(1)
+        pinyin = m.group(2)
+        syllable_count = len(pinyin.split())
+        # Keep all chars in cleaned text, just remove the (pinyin) part
+        chars_end = m.start() + len(full_chars)
+        cleaned.append(text[last_end:chars_end])
+        last_end = m.end()
+        # Annotation targets the last N chars (N = syllable count)
+        target_chars = full_chars[-syllable_count:] if syllable_count < len(full_chars) else full_chars
+        # Position in cleaned text: sum of cleaned so far, minus target offset from end
+        clean_pos = sum(len(s) for s in cleaned) - len(target_chars)
+        annotations.append({"start": clean_pos, "chars": target_chars, "pinyin": pinyin})
+    cleaned.append(text[last_end:])
+    return "".join(cleaned), annotations
 
 
 def clean_text(text: str) -> str:
@@ -432,6 +497,44 @@ def paragraph_bold_ranges(paragraph: Any) -> list[list[int]]:
         cursor += len(text)
         if run.bold is True:
             ranges.append([start, cursor])
+    return ranges
+
+
+def paragraph_superscript_ranges(paragraph: Any) -> list[list[int]]:
+    """Return character ranges where Word run-level vertAlign is superscript."""
+    from docx.oxml.ns import qn
+    ranges: list[list[int]] = []
+    cursor = 0
+    for run in paragraph.runs:
+        text = re.sub(r"[\r\n\t]+", " ", run.text)
+        if not text:
+            continue
+        start = cursor
+        cursor += len(text)
+        rpr = run._r.find(qn('w:rPr'))
+        if rpr is not None:
+            vert_align = rpr.find(qn('w:vertAlign'))
+            if vert_align is not None and vert_align.get(qn('w:val')) == 'superscript':
+                ranges.append([start, cursor])
+    return ranges
+
+
+def paragraph_emphasis_ranges(paragraph: Any) -> list[list[int]]:
+    """Return character ranges where Word run-level em (emphasis dots) is set."""
+    from docx.oxml.ns import qn
+    ranges: list[list[int]] = []
+    cursor = 0
+    for run in paragraph.runs:
+        text = re.sub(r"[\r\n\t]+", " ", run.text)
+        if not text:
+            continue
+        start = cursor
+        cursor += len(text)
+        rpr = run._r.find(qn('w:rPr'))
+        if rpr is not None:
+            em = rpr.find(qn('w:em'))
+            if em is not None and em.get(qn('w:val')) not in (None, 'none'):
+                ranges.append([start, cursor])
     return ranges
 
 
@@ -744,7 +847,7 @@ def flatten_image_table(rows_with_cells: list[list[dict[str, Any]]]) -> list[Any
 
 STEM_BLANK_RE = re.compile(r"[（(][\s　]*[）)][\s。，]*$")
 BARE_OPTION_REJECT_RE = re.compile(
-    r"^(?:[（(]\d+[）)]|\d+[.．、]|[①-⑳]|[一二三四五六七八九十百]+[、.．]|【|[（(]\d{4}|第[一二三四五六七八九十百]+)"
+    r"^(?:[（(]\d+[）)]|\d+[.．、]|[①-⑳㉑-㉟]|[一二三四五六七八九十百]+[、.．]|【|[（(]\d{4}|第[一二三四五六七八九十百]+)"
 )
 _SOURCE_IN_PARENS_RE = re.compile(r"^[（(].*\d{4}.*[）)]$")
 
@@ -865,11 +968,11 @@ def normalize_bare_answer_items(blocks: list[Any]) -> list[Any]:
     return normalized
 
 
-_LIST_PREFIX_RE = re.compile(r"^(?:[（(]\d+[）)]|[①-⑳]|\d+[.．、])")
+_LIST_PREFIX_RE = re.compile(r"^(?:[（(]\d+[）)]|[①-⑳㉑-㉟]|\d+[.．、])")
 # Source citations like （改编自2025年...） or （选自...） should never get list prefixes
 _SOURCE_CITATION_RE = re.compile(r"^（[^）]*(?:\d{4}|改编自|改写自|选自|摘自)[^）]*）")
 
-# Map from a base font to its bold-weight equivalent for in-line bold rendering
+# --- Inline formatting defaults (overridable via shared-rules.json) ---
 _BOLD_FONT_MAP: dict[str, str] = {
     "FZKaiGBK": "FZYanSongZhun",
     "FZYanSongZhun": "FZYanSongCu",
@@ -879,16 +982,102 @@ _BOLD_FONT_MAP: dict[str, str] = {
     "AlibabaPuHuiTiM": "AlibabaPuHuiTiB",
 }
 
-# FZKaiGBK has glyphs for ①–⑩ (U+2460–U+2469) but not ⑪–⑳ (U+246A–U+2473).
-_MISSING_CIRCLED_NUMS: frozenset[int] = frozenset(range(0x2460, 0x2474))
+_MISSING_CIRCLED_NUMS: frozenset[int] = frozenset(range(0x2460, 0x2474)) | frozenset(range(0x3251, 0x3260))
 _CIRCLED_FALLBACK_FONT: str | None = None
-for _fb_path in ("/Library/Fonts/Arial Unicode.ttf", "/System/Library/Fonts/Supplemental/Arial Unicode.ttf"):
-    try:
-        pdfmetrics.registerFont(TTFont("ArialUnicode", _fb_path))
-        _CIRCLED_FALLBACK_FONT = "ArialUnicode"
-        break
-    except Exception:
-        pass
+_RUBY_PINYIN_FONT: str | None = None
+_EMPHASIS_DOT_RADIUS_FACTOR: float = 0.06
+_EMPHASIS_DOT_DROP_FACTOR: float = 0.25
+_SUPERSCRIPT_SIZE_FACTOR: float = 0.7
+_SUPERSCRIPT_RISE_FACTOR: float = 0.35
+_RUBY_PINYIN_SIZE: float = 7
+_RUBY_PINYIN_GAP_PT: float = 4
+_MIN_UNDERLINE_WIDTH_PT: float = 10
+
+
+def _parse_unicode_ranges(range_strs: list[str]) -> frozenset[int]:
+    """Parse ['U+2460-U+2473', 'U+3251-U+325F'] into a frozenset of codepoints."""
+    codes: set[int] = set()
+    for s in range_strs:
+        s = s.strip()
+        if "-" in s:
+            parts = s.split("-")
+            start = int(parts[0].replace("U+", "").replace("u+", ""), 16)
+            end = int(parts[1].replace("U+", "").replace("u+", ""), 16)
+            codes.update(range(start, end + 1))
+        else:
+            codes.add(int(s.replace("U+", "").replace("u+", ""), 16))
+    return frozenset(codes)
+
+
+def _init_inline_formatting(layout_rules: dict[str, Any]) -> None:
+    """Configure inline formatting globals from shared/template rules."""
+    global _BOLD_FONT_MAP, _MISSING_CIRCLED_NUMS, _CIRCLED_FALLBACK_FONT
+    global _RUBY_PINYIN_FONT, _RUBY_PINYIN_SIZE, _RUBY_PINYIN_GAP_PT
+    global _EMPHASIS_DOT_RADIUS_FACTOR, _EMPHASIS_DOT_DROP_FACTOR
+    global _SUPERSCRIPT_SIZE_FACTOR, _SUPERSCRIPT_RISE_FACTOR
+
+    inline = layout_rules.get("inline_formatting", {})
+
+    # Bold font map
+    if inline.get("bold_font_map"):
+        _BOLD_FONT_MAP = inline["bold_font_map"]
+
+    # Circled numbers
+    cn = inline.get("circled_numbers", {})
+    if cn.get("ranges"):
+        _MISSING_CIRCLED_NUMS = _parse_unicode_ranges(cn["ranges"])
+    font_paths = []
+    if cn.get("font_path"):
+        font_paths.append(cn["font_path"])
+    font_paths.extend(cn.get("fallback_font_paths", []))
+    if not font_paths:
+        font_paths = [
+            "/System/Library/Fonts/Supplemental/AppleMyungjo.ttf",
+            "/System/Library/Fonts/Supplemental/AppleGothic.ttf",
+        ]
+    for fb_path in font_paths:
+        try:
+            pdfmetrics.registerFont(TTFont("CircledNumFallback", fb_path))
+            _CIRCLED_FALLBACK_FONT = "CircledNumFallback"
+            break
+        except Exception:
+            pass
+
+    # Ruby pinyin
+    rp = inline.get("ruby_pinyin", {})
+    _RUBY_PINYIN_SIZE = rp.get("size", 7)
+    _RUBY_PINYIN_GAP_PT = rp.get("gap_pt", 4)
+    pinyin_paths = [
+        Path(__file__).resolve().parent.parent / "assets" / "fonts" / "RJPINYIN.TTF",
+        Path("/Users/tal/Desktop/RJPINYIN.TTF"),
+    ]
+    for pp in pinyin_paths:
+        if pp.exists():
+            try:
+                pdfmetrics.registerFont(TTFont("RjPinyin", str(pp)))
+                _RUBY_PINYIN_FONT = "RjPinyin"
+                break
+            except Exception:
+                pass
+
+    # Emphasis dots
+    ed = inline.get("emphasis_dots", {})
+    _EMPHASIS_DOT_RADIUS_FACTOR = ed.get("radius_factor", 0.06)
+    _EMPHASIS_DOT_DROP_FACTOR = ed.get("drop_factor", 0.25)
+
+    # Superscript
+    sp = inline.get("superscript", {})
+    _SUPERSCRIPT_SIZE_FACTOR = sp.get("size_factor", 0.7)
+    _SUPERSCRIPT_RISE_FACTOR = sp.get("rise_factor", 0.35)
+
+    # Typography
+    global _MIN_UNDERLINE_WIDTH_PT
+    typo = layout_rules.get("typography", {})
+    _MIN_UNDERLINE_WIDTH_PT = typo.get("min_underline_width_pt", 10)
+
+
+# Run default initialization for backward compat (no shared-rules loaded yet)
+_init_inline_formatting({})
 
 
 def load_docx_paragraphs(docx_path: Path) -> list[Any]:
@@ -913,18 +1102,29 @@ def load_docx_paragraphs(docx_path: Path) -> list[Any]:
                 blocks.extend(image_blocks)
                 continue
             text = normalize_answer_parentheses(text)
+            text, ruby_annotations = extract_ruby_annotations(text)
             underline_ranges = paragraph_underline_ranges(p)
             bold_ranges = paragraph_bold_ranges(p)
+            superscript_ranges = paragraph_superscript_ranges(p)
+            emphasis_ranges = paragraph_emphasis_ranges(p)
             if list_prefix_len:
                 underline_ranges = offset_inline_ranges(underline_ranges, list_prefix_len)
                 bold_ranges = offset_inline_ranges(bold_ranges, list_prefix_len)
+                superscript_ranges = offset_inline_ranges(superscript_ranges, list_prefix_len)
+                emphasis_ranges = offset_inline_ranges(emphasis_ranges, list_prefix_len)
             word_align = "right" if p.alignment == 2 else None
-            if underline_ranges or bold_ranges or word_align:
+            if underline_ranges or bold_ranges or superscript_ranges or emphasis_ranges or ruby_annotations or word_align:
                 block: dict[str, Any] = {"type": "paragraph", "text": text}
                 if underline_ranges:
                     block["underline_ranges"] = underline_ranges
                 if bold_ranges:
                     block["bold_ranges"] = bold_ranges
+                if superscript_ranges:
+                    block["superscript_ranges"] = superscript_ranges
+                if emphasis_ranges:
+                    block["emphasis_ranges"] = emphasis_ranges
+                if ruby_annotations:
+                    block["ruby_annotations"] = ruby_annotations
                 if word_align:
                     block["word_align"] = word_align
                 blocks.append(block)
@@ -1376,7 +1576,7 @@ def write_background_prompt_manifest(output_dir: Path, template: dict[str, Any])
 
 
 _POEM_LINE_REJECT_RE = re.compile(
-    r"^(?:[1-9]\d*[.．、]|[（(]\d+[）)]|[A-F][.．]|[①-⑳]|【|（\d{4}|参考答案)"
+    r"^(?:[1-9]\d*[.．、]|[（(]\d+[）)]|[A-F][.．]|[①-⑳㉑-㉟]|【|（\d{4}|参考答案)"
 )
 
 
@@ -1402,6 +1602,9 @@ def paragraph_style(
     layout_rules = layout_rules or {}
     underline_ranges = text.get("underline_ranges", []) if isinstance(text, dict) else []
     bold_ranges = text.get("bold_ranges", []) if isinstance(text, dict) else []
+    superscript_ranges = text.get("superscript_ranges", []) if isinstance(text, dict) else []
+    emphasis_ranges = text.get("emphasis_ranges", []) if isinstance(text, dict) else []
+    ruby_annotations = text.get("ruby_annotations", []) if isinstance(text, dict) else []
     word_align = text.get("word_align", None) if isinstance(text, dict) else None
     text = block_text(text)
     yan_mid = fonts.get("title_mid", fonts["title"])
@@ -1550,7 +1753,7 @@ def paragraph_style(
             "badge_text": number,
             "badge_color": config_color(layout_rules, "practice_red", "#cc0000"),
             "left_indent": 36,
-            "wrap_width_factor": 1.0 if shifted_underlines else 0.84,
+            "wrap_width_factor": 1.0,
             "underline_ranges": shifted_underlines,
         }, layout_rules, "question_stem")
     if question_match and is_answer:
@@ -1587,7 +1790,7 @@ def paragraph_style(
             "marker_text": f"{marker}.",
             "inline_marker": True,
             "left_indent": 36,
-            "wrap_width_factor": 0.84,
+            "wrap_width_factor": 1.0,
         }, layout_rules, "option")
     if parenthesized_option_match:
         marker, body = parenthesized_option_match.groups()
@@ -1615,7 +1818,7 @@ def paragraph_style(
             "marker_text": marker,
             "inline_marker": True,
             "left_indent": 36,
-            "wrap_width_factor": 0.84,
+            "wrap_width_factor": 1.0,
             "underline_ranges": display_underlines,
             "bold_ranges": display_bolds,
         }, layout_rules, "option")
@@ -1646,7 +1849,7 @@ def paragraph_style(
             "bar": False,
         }, layout_rules, "source")
     if not is_answer and is_article_title_text(text, layout_rules):
-        return apply_style_rule({
+        style = apply_style_rule({
             "kind": "article_title",
             "font": yan_mid,
             "size": 14,
@@ -1658,9 +1861,15 @@ def paragraph_style(
             "first_line_indent": 0,
             "bar": False,
         }, layout_rules, "article_title")
+        if superscript_ranges:
+            style["superscript_ranges"] = superscript_ranges
+        return style
     if not is_answer and force_poem_line:
         if is_candidate_poem_line(text, layout_rules):
-            return _poem_line_style(kai, layout_rules)
+            style = _poem_line_style(kai, layout_rules)
+            if superscript_ranges:
+                style["superscript_ranges"] = superscript_ranges
+            return style
         # Dynasty+author line like "【唐】王维" — not a poem line but keeps poem context
         if re.match(r"^【[^】]{1,4}】.{1,8}$", text):
             return apply_style_rule({
@@ -1685,9 +1894,12 @@ def paragraph_style(
         "color": config_color(layout_rules, "body_text", "#222222"),
         "space_before": 1,
         "space_after": 3 if is_answer else 2,
-        "first_line_indent": 0 if word_align == "right" else (18 if re.match(r"^[①-⑳]", text) else (0 if is_answer else 28)),
+        "first_line_indent": 0 if word_align == "right" else (18 if re.match(r"^[①-⑳㉑-㉟]", text) else (0 if is_answer else 28)),
         "underline_ranges": underline_ranges,
         "bold_ranges": bold_ranges,
+        "superscript_ranges": superscript_ranges,
+        "emphasis_ranges": emphasis_ranges,
+        "ruby_annotations": ruby_annotations,
         "bar": False,
     }, layout_rules, "answer_body" if is_answer else "article_body")
     return style
@@ -1949,7 +2161,7 @@ def _split_for_circled_fallback(text: str) -> list[tuple[str, bool]]:
 def _draw_circled_number_fallback(
     c: canvas.Canvas, x: float, y: float, ch: str, font: str, size: float
 ) -> float:
-    """Draw ⑪–⑳ using ArialUnicode fallback font."""
+    """Draw ⑪–⑳/㉑–㉟ using fallback font."""
     char_w = pdfmetrics.stringWidth(ch, font, size)
     if _CIRCLED_FALLBACK_FONT:
         c.saveState()
@@ -1985,6 +2197,52 @@ def _draw_justified_with_circled_fallback(
     c.setFont(base_font, size)
 
 
+def _draw_justified_with_superscript(
+    c: canvas.Canvas,
+    line: str,
+    line_start: int,
+    tx: float,
+    y: float,
+    style: dict[str, Any],
+    extra: float,
+    color_mode: str,
+) -> list[float]:
+    """Draw a justified line char-by-char, handling superscript and circled fallback.
+    Returns per-character x positions (len = len(line) + 1)."""
+    base_font = style["font"]
+    size = style["size"]
+    sup_size = size * _SUPERSCRIPT_SIZE_FACTOR
+    sup_rise = size * _SUPERSCRIPT_RISE_FACTOR
+    sup_ranges = style.get("superscript_ranges") or []
+    c.setFillColor(color_from_hex(style["color"], (.13, .13, .13), color_mode))
+    cx = tx
+    positions = []
+    for i, ch in enumerate(line):
+        positions.append(cx)
+        abs_pos = line_start + i
+        is_sup = sup_ranges and _is_in_ranges(abs_pos, sup_ranges)
+        cur_size = sup_size if is_sup else size
+        cur_y = y + sup_rise if is_sup else y
+        if ord(ch) in _MISSING_CIRCLED_NUMS and _CIRCLED_FALLBACK_FONT:
+            c.setFont(_CIRCLED_FALLBACK_FONT, cur_size)
+        else:
+            c.setFont(base_font, cur_size)
+        c.drawString(cx, cur_y, ch)
+        char_w = pdfmetrics.stringWidth(ch, base_font, cur_size)
+        if i < len(line) - 1:
+            cx += char_w + extra
+    positions.append(cx)
+    c.setFont(base_font, size)
+    return positions
+
+
+def _is_in_ranges(pos: int, ranges: list[list[int]]) -> bool:
+    for start, end in ranges:
+        if start <= pos < end:
+            return True
+    return False
+
+
 def draw_line_with_format(
     c: canvas.Canvas,
     line: str,
@@ -1992,28 +2250,67 @@ def draw_line_with_format(
     tx: float,
     y: float,
     style: dict[str, Any],
-) -> None:
-    """Draw a text line, using the bold font variant for bold_ranges segments."""
+) -> list[float]:
+    """Draw a text line, using the bold font variant for bold_ranges segments
+    and smaller raised glyphs for superscript_ranges.
+    Returns per-character x positions (len = len(line) + 1, last is end x)."""
     bold_ranges = style.get("bold_ranges") or []
+    superscript_ranges = style.get("superscript_ranges") or []
     has_fallback = any(ord(ch) in _MISSING_CIRCLED_NUMS for ch in line)
-    if not bold_ranges and not has_fallback:
+    if not bold_ranges and not superscript_ranges and not has_fallback:
         c.drawString(tx, y, line)
-        return
+        base_font = style["font"]
+        size = style["size"]
+        positions = [tx]
+        cx = tx
+        for ch in line:
+            cx += pdfmetrics.stringWidth(ch, base_font, size)
+            positions.append(cx)
+        return positions
     base_font = style["font"]
     bold_font = _BOLD_FONT_MAP.get(base_font, base_font)
     size = style["size"]
+    sup_size = size * _SUPERSCRIPT_SIZE_FACTOR
+    sup_rise = size * _SUPERSCRIPT_RISE_FACTOR
     cx = tx
+    positions = []
     segs = _split_line_by_bold(line, line_start, bold_ranges) if bold_ranges else [(line, False)]
+    seg_offset = 0
     for seg, is_bold in segs:
         font = bold_font if is_bold else base_font
-        c.setFont(font, size)
         for subseg, is_fallback in _split_for_circled_fallback(seg):
             if is_fallback:
-                cx += _draw_circled_number_fallback(c, cx, y, subseg, font, size)
+                abs_pos = line_start + seg_offset
+                positions.append(cx)
+                if superscript_ranges and _is_in_ranges(abs_pos, superscript_ranges):
+                    cx += _draw_circled_number_fallback(c, cx, y + sup_rise, subseg, font, sup_size)
+                else:
+                    cx += _draw_circled_number_fallback(c, cx, y, subseg, font, size)
+                seg_offset += len(subseg)
             else:
-                c.drawString(cx, y, subseg)
-                cx += text_width(subseg, font, size)
+                if not superscript_ranges:
+                    c.setFont(font, size)
+                    c.drawString(cx, y, subseg)
+                    for ch in subseg:
+                        positions.append(cx)
+                        cx += pdfmetrics.stringWidth(ch, font, size)
+                    seg_offset += len(subseg)
+                else:
+                    for ch in subseg:
+                        abs_pos = line_start + seg_offset
+                        positions.append(cx)
+                        if _is_in_ranges(abs_pos, superscript_ranges):
+                            c.setFont(font, sup_size)
+                            c.drawString(cx, y + sup_rise, ch)
+                            cx += pdfmetrics.stringWidth(ch, font, sup_size)
+                        else:
+                            c.setFont(font, size)
+                            c.drawString(cx, y, ch)
+                            cx += pdfmetrics.stringWidth(ch, font, size)
+                        seg_offset += 1
+    positions.append(cx)
     c.setFont(base_font, size)
+    return positions
 
 
 def draw_paragraph_lines(
@@ -2091,18 +2388,22 @@ def draw_paragraph_lines(
             and not style.get("underline_ranges")
             and not style.get("bold_ranges")
         )
+        char_positions = None
         if should_justify:
             line_width = text_width(line, style["font"], style["size"])
             extra = max(0, (available_w - line_width) / (len(line) - 1))
             if extra > style["size"] * 0.7:
-                draw_line_with_format(c, line, text_offset, tx, c._pagesize[1] - cursor, style)
+                char_positions = draw_line_with_format(c, line, text_offset, tx, c._pagesize[1] - cursor, style)
                 draw_underlines_for_line(c, line, text_offset, tx, cursor, style, color_mode)
+                draw_ruby_for_line(c, line, text_offset, cursor, style, color_mode, char_positions)
+                draw_emphasis_dots_for_line(c, line, text_offset, cursor, style, color_mode, char_positions)
                 text_offset += len(line)
                 first_line = False
                 continue
-            if _CIRCLED_FALLBACK_FONT and any(ord(ch) in _MISSING_CIRCLED_NUMS for ch in line):
-                _draw_justified_with_circled_fallback(
-                    c, line, tx, c._pagesize[1] - cursor, style, extra, color_mode
+            sup_ranges = style.get("superscript_ranges") or []
+            if sup_ranges or (_CIRCLED_FALLBACK_FONT and any(ord(ch) in _MISSING_CIRCLED_NUMS for ch in line)):
+                char_positions = _draw_justified_with_superscript(
+                    c, line, text_offset, tx, c._pagesize[1] - cursor, style, extra, color_mode
                 )
             else:
                 text_obj = c.beginText(tx, c._pagesize[1] - cursor)
@@ -2111,14 +2412,21 @@ def draw_paragraph_lines(
                 text_obj.setCharSpace(extra)
                 text_obj.textLine(line)
                 c.drawText(text_obj)
-                # Reset Tc to 0: character spacing set inside a BT/ET block persists in PDF
-                # graphics state, causing subsequent drawString calls to render wider.
                 _tc_reset = c.beginText(0, 0)
                 _tc_reset.setCharSpace(0)
                 c.drawText(_tc_reset)
+                # Build positions for setCharSpace path
+                cx = tx
+                char_positions = []
+                for i, ch in enumerate(line):
+                    char_positions.append(cx)
+                    cx += pdfmetrics.stringWidth(ch, style["font"], style["size"]) + extra
+                char_positions.append(cx)
         else:
-            draw_line_with_format(c, line, text_offset, tx, c._pagesize[1] - cursor, style)
+            char_positions = draw_line_with_format(c, line, text_offset, tx, c._pagesize[1] - cursor, style)
         draw_underlines_for_line(c, line, text_offset, tx, cursor, style, color_mode)
+        draw_ruby_for_line(c, line, text_offset, cursor, style, color_mode, char_positions)
+        draw_emphasis_dots_for_line(c, line, text_offset, cursor, style, color_mode, char_positions)
         text_offset += len(line)
         first_line = False
     if lines:
@@ -2156,7 +2464,84 @@ def draw_underlines_for_line(
             x2 = x1 + text_width(" " * (overlap_end - overlap_start), style["font"], style["size"])
         else:
             x2 = x1 + text_width(segment, style["font"], style["size"])
+        if x2 - x1 < _MIN_UNDERLINE_WIDTH_PT:
+            continue
         c.line(x1, y, x2, y)
+
+
+def draw_ruby_for_line(
+    c: canvas.Canvas,
+    line: str,
+    line_start: int,
+    cursor: float,
+    style: dict[str, Any],
+    color_mode: str = "rgb",
+    char_positions: list[float] | None = None,
+) -> None:
+    annotations = style.get("ruby_annotations") or []
+    if not annotations or not line or not _RUBY_PINYIN_FONT or not char_positions:
+        return
+    line_end = line_start + len(line)
+    ruby_size = _RUBY_PINYIN_SIZE
+    y = c._pagesize[1] - cursor + ruby_size + _RUBY_PINYIN_GAP_PT
+    for ann in annotations:
+        ann_start = ann["start"]
+        ann_end = ann_start + len(ann["chars"])
+        if ann_end <= line_start or ann_start >= line_end:
+            continue
+        chars = ann["chars"]
+        syllables = ann["pinyin"].split()
+        n_chars = len(chars)
+        n_syllables = len(syllables)
+        # Map syllables to the last N characters (pinyin annotates the hard chars at end)
+        char_offset = n_chars - n_syllables
+        for si, syllable in enumerate(syllables):
+            char_idx = ann_start + char_offset + si
+            if char_idx < line_start or char_idx >= line_end:
+                continue
+            local_idx = char_idx - line_start
+            x1 = char_positions[local_idx]
+            x2 = char_positions[local_idx + 1]
+            char_w = x2 - x1
+            syllable_w = pdfmetrics.stringWidth(syllable, _RUBY_PINYIN_FONT, ruby_size)
+            px = x1 + (char_w - syllable_w) / 2
+            c.saveState()
+            c.setFillColor(color_from_hex(style["color"], (.13, .13, .13), color_mode))
+            c.setFont(_RUBY_PINYIN_FONT, ruby_size)
+            c.drawString(px, y, syllable)
+            c.restoreState()
+
+
+def draw_emphasis_dots_for_line(
+    c: canvas.Canvas,
+    line: str,
+    line_start: int,
+    cursor: float,
+    style: dict[str, Any],
+    color_mode: str = "rgb",
+    char_positions: list[float] | None = None,
+) -> None:
+    emphasis_ranges = style.get("emphasis_ranges") or []
+    if not emphasis_ranges or not line or not char_positions:
+        return
+    line_end = line_start + len(line)
+    size = style["size"]
+    dot_radius = size * _EMPHASIS_DOT_RADIUS_FACTOR
+    dot_drop = size * _EMPHASIS_DOT_DROP_FACTOR
+    y = c._pagesize[1] - cursor - dot_drop
+    c.saveState()
+    c.setFillColor(color_from_hex(style["color"], (.13, .13, .13), color_mode))
+    for rng in emphasis_ranges:
+        rng_start, rng_end = rng[0], rng[1]
+        if rng_end <= line_start or rng_start >= line_end:
+            continue
+        for abs_pos in range(max(rng_start, line_start), min(rng_end, line_end)):
+            local_idx = abs_pos - line_start
+            x1 = char_positions[local_idx]
+            x2 = char_positions[local_idx + 1]
+            cx = x1 + (x2 - x1) / 2
+            c.circle(cx, y, dot_radius, fill=1, stroke=0)
+    c.restoreState()
 
 
 def table_style(fonts: dict[str, str], layout_rules: dict[str, Any]) -> dict[str, Any]:
@@ -2925,7 +3310,10 @@ def build_pdf(args: argparse.Namespace) -> dict[str, Any]:
 
     template = json.loads(template_path.read_text(encoding="utf-8"))
     font_map = json.loads(font_map_path.read_text(encoding="utf-8"))
-    layout_rules = load_optional_json(getattr(args, "layout_rules", None))
+    shared_rules = load_shared_rules(getattr(args, "shared_rules", None))
+    template_rules = load_optional_json(getattr(args, "layout_rules", None))
+    layout_rules = _deep_merge(shared_rules, template_rules)
+    _init_inline_formatting(layout_rules)
     asset_map = load_optional_json(getattr(args, "asset_map", None))
     _, substitutions = register_fonts(font_map, font_map_path.parent)
     svg_assets = load_svg_assets(svg_dir, asset_map)
@@ -3076,6 +3464,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--title", default="贾平凹标题含义理解")
     parser.add_argument("--page-mode", choices=["single", "spread"], default="single")
     parser.add_argument("--color-mode", choices=["cmyk", "rgb"], default="cmyk")
+    parser.add_argument("--shared-rules", default=None)
     parser.add_argument("--layout-rules", default=None)
     parser.add_argument("--asset-map", default=None)
     return parser.parse_args()

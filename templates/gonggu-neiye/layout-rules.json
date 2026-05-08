@@ -1,20 +1,11 @@
 {
   "schema_version": "0.1",
-  "description": "当前巩固内页模板的实例级排版规则。不要把这些值视为其他模板的默认值。",
+  "description": "巩固内页模板的实例级排版规则。公用规则继承自项目根目录 shared-rules.json。",
   "page_flow": {
     "skip_empty_tail_spreads": true,
     "repeat_last_practice_spread_when_overflow": true,
     "repeat_last_answer_spread_when_overflow": true,
     "dynamic_page_numbers": true,
-    "keep_with_next_kinds": [
-      "main_title",
-      "section",
-      "topic_heading",
-      "article_title",
-      "answer_label",
-      "source",
-      "question_numbered"
-    ],
     "min_frame_height_pt": {
       "practice_content_flow": 680,
       "answer_content_flow": 680
@@ -72,60 +63,6 @@
       "^（.*）$"
     ]
   },
-  "markers": {
-    "question_patterns": [
-      "^([1-9]\\d*)[.．、]\\s*(.*)$"
-    ],
-    "option_patterns": [
-      "^([A-F])[.．]\\s*(.*)$"
-    ],
-    "parenthesized_option_patterns": [
-      "^(（\\d+）)\\s*(.*)$"
-    ],
-    "judgement_patterns": [
-      "^（\\d+）"
-    ]
-  },
-  "hanging": {
-    "start_fields": [
-      "marker_text",
-      "badge_text"
-    ],
-    "end_kinds": [
-      "main_title",
-      "topic_heading",
-      "reading_prompt",
-      "article_title",
-      "author",
-      "section",
-      "source",
-      "answer_label"
-    ],
-    "inherit_kinds": [
-      "body",
-      "answer_body",
-      "answer_line",
-      "option",
-      "question_numbered",
-      "table",
-      "image"
-    ],
-    "clear_first_line_indent_kinds": [
-      "body",
-      "answer_body",
-      "answer_line"
-    ]
-  },
-  "normalization": {
-    "answer_labels": {
-      "【答案】": "【答案】",
-      "答案：": "【答案】",
-      "答案:": "【答案】",
-      "【解析】": "【解析】",
-      "解析：": "【解析】",
-      "解析:": "【解析】"
-    }
-  },
   "styles": {
     "main_title": {
       "font": "FZYanSongZhong",
@@ -143,7 +80,8 @@
       "font": "FZKaiGBK",
       "size": 14,
       "leading": 24,
-      "align": "justify-last-left"
+      "align": "justify-last-left",
+      "min_last_line_chars": 2
     },
     "question_stem": {
       "font": "FZYanSongZhun",
@@ -151,7 +89,9 @@
       "leading": 27,
       "align": "left",
       "space_before": 0,
-      "left_indent": 36
+      "left_indent": 36,
+      "wrap_width_factor": 1.0,
+      "min_last_line_chars": 2
     },
     "question_content": {
       "left_indent": 36
@@ -162,7 +102,9 @@
       "leading": 27,
       "align": "left",
       "space_before": 0,
-      "left_indent": 36
+      "left_indent": 36,
+      "wrap_width_factor": 1.0,
+      "min_last_line_chars": 2
     },
     "answer_body": {
       "font": "FZKaiGBK",
@@ -172,17 +114,6 @@
     },
     "answer_line": {
       "first_space_before": 6
-    },
-    "question_stem": {
-      "wrap_width_factor": 1.0,
-      "min_last_line_chars": 2
-    },
-    "option": {
-      "wrap_width_factor": 1.0,
-      "min_last_line_chars": 2
-    },
-    "article_body": {
-      "min_last_line_chars": 2
     },
     "table": {
       "leading": 18
@@ -197,5 +128,43 @@
     "answer_gray": "#898989",
     "source_text": "#898989",
     "body_text": "cmyk(0,0,0,0.95)"
+  },
+  "idml": {
+    "template_file": "assets/references/巩固内页排版样式.idml",
+    "practice_story_id": "u3713",
+    "answer_story_id": "u3b07",
+    "practice_spread_template": "Spreads/Spread_u3695.xml",
+    "answer_spread_template": "Spreads/Spread_u3a1e.xml",
+    "practice_master": "u3c8",
+    "font_names": {
+      "FZYanSongZhong": "方正颜宋简体_中",
+      "FZYanSongZhun": "方正颜宋简体_准",
+      "FZYanSongCu": "方正颜宋简体_粗",
+      "FZKaiGBK": "方正楷体_GBK"
+    },
+    "paragraph_style_mapping": {
+      "main_title": "ParagraphStyle/问题",
+      "section": "ParagraphStyle/加粗小标题",
+      "topic_heading": "ParagraphStyle/小标题",
+      "body": "ParagraphStyle/阅读文章正文",
+      "poem_line": "ParagraphStyle/阅读文章正文",
+      "question_numbered": "ParagraphStyle/问题",
+      "option": "ParagraphStyle/题干",
+      "source": "ParagraphStyle/出处",
+      "reading_prompt": "ParagraphStyle/例句前",
+      "article_title": "ParagraphStyle/问题",
+      "author": "ParagraphStyle/出处",
+      "answer_body": "ParagraphStyle/答案正文",
+      "answer_label": "ParagraphStyle/问题",
+      "answer_line": "ParagraphStyle/答案正文",
+      "judgement_item": "ParagraphStyle/题干",
+      "table": "ParagraphStyle/阅读文章正文"
+    },
+    "default_paragraph_style": "ParagraphStyle/阅读文章正文",
+    "decoration_keys": {
+      "title_polygon": "title_polygon",
+      "section_bar_textframe": "section_bar_textframe",
+      "question_badge_textframe": "question_badge_textframe"
+    }
   }
 }
