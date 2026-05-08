@@ -52,29 +52,23 @@ python3 -m teaching_layout validate \
   --manifest "/path/to/output-folder/generation-manifest.json"
 ```
 
-## Claude/Codex 用户
+## AI 助手用户（Claude Code / Codex / OpenClaw）
 
-如果同时收到了 `teaching-layout-skill.zip`，先安装 Skill：
+用 AI 助手打开本项目文件夹，输入：
 
-```bash
-# Codex
-mkdir -p ~/.codex/skills
-unzip teaching-layout-skill.zip -d ~/.codex/skills
-
-# Claude Code
-mkdir -p ~/.claude/skills
-unzip teaching-layout-skill.zip -d ~/.claude/skills
+```
+/teaching-layout
 ```
 
-然后用 Claude/Codex 打开这个 `teaching-layout-cli` 文件夹，并发送：
+AI 会自动引导你完成：
+1. 选择 Word 文档
+2. 选择输出格式（PDF 或 IDML）
+3. 执行生成
+4. 报告结果和输出路径
 
-```text
-请使用 teaching-layout skill，先检查“人文-课后巩固”模板是否 portable，
-然后把我的 DOCX 排成印刷 PDF，生成后运行 validate。
+无需手动敲命令，全程自然语言交互。
 
-DOCX 路径：/path/to/input.docx
-输出目录：/path/to/output-folder
-```
+**IDML 输出说明：** 生成的包含 `.idml` 文件、`Links/`（图片）和 `Document Fonts/`（字体）。在 InDesign 中打开 IDML 后需要重新链接图片。
 
 ## 分享注意
 

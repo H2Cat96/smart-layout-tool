@@ -1,6 +1,6 @@
 # teaching-layout-cli
 
-本地教辅 PDF 排版 CLI 引擎雏形。
+本地教辅排版 CLI 引擎（PDF + IDML）。
 
 目标是把已经验证过的“模板材料”生成流程收敛成稳定入口，并让模板以独立模板包的形式分享：
 
@@ -12,14 +12,26 @@
 
 快速交给别人使用时，先看 [QUICKSTART.md](QUICKSTART.md)。
 
-## 使用
+## AI 助手用户（推荐）
+
+用 Claude Code / Codex / OpenClaw 打开本项目文件夹，输入：
+
+```
+/teaching-layout
+```
+
+AI 会引导你选择输出格式（PDF / IDML）、确认 Word 文档、执行生成并报告结果，全程无需手动敲命令。
+
+## 命令行使用
 
 ```bash
 cd teaching-layout-cli
 
+# 解析 Word 结构
 python3 -m teaching_layout parse-docx \
   --docx "/path/to/input.docx"
 
+# 生成 PDF
 python3 -m teaching_layout build \
   --template "人文-课后巩固" \
   --docx "/path/to/input.docx" \
@@ -28,6 +40,12 @@ python3 -m teaching_layout build \
   --preview-name "output_预览.png" \
   --title "课后巩固"
 
+# 生成 IDML（InDesign 格式）
+python3 templates/gonggu-neiye/legacy/generate_idml.py \
+  --docx "/path/to/input.docx" \
+  --output "/path/to/output-folder"
+
+# 校验 PDF
 python3 -m teaching_layout validate \
   --pdf "/path/to/output-folder/output.pdf" \
   --manifest "/path/to/output-folder/generation-manifest.json"
