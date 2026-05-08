@@ -66,21 +66,21 @@ DEFAULT_CONTENT_DETECTION = {
     "reading_prompt_patterns": [r"^阅读.*(题|完成|回答|问题)"],
     "structural_reading_prompt_exclude_patterns": [
         r"^[1-9]\d*[.．、]",
-        r"^[A-E][.．]",
+        r"^[A-F][.．]",
         r"^（\d+）",
     ],
     "structural_reading_prompt_keywords": ["阅读", "选文", "短文", "文章", "完成", "回答"],
     "article_title": {
         "max_length": 12,
         "reject_prefixes": ["【", "（", "(", "“", "《"],
-        "reject_patterns": [r"^[A-E][.．]", r"^[1-9]\d*[.．、]", r"^祝$", r"^[X\d]+年[X\d]+月[X\d]+日$"],
+        "reject_patterns": [r"^[A-F][.．]", r"^[1-9]\d*[.．、]", r"^祝$", r"^[X\d]+年[X\d]+月[X\d]+日$"],
     },
     "author_names": ["贾平凹"],
     "source_patterns": [r"^（.*）$"],
 }
 DEFAULT_MARKERS = {
     "question_patterns": [r"^([1-9]\d*)[.．、]\s*(.*)$"],
-    "option_patterns": [r"^([A-E])[.．]\s*(.*)$"],
+    "option_patterns": [r"^([A-F])[.．]\s*(.*)$"],
     "parenthesized_option_patterns": [r"^(（\d+）)\s*(.*)$"],
     "judgement_patterns": [r"^（\d+）"],
 }
@@ -1822,6 +1822,12 @@ def paragraph_style(
         display_emphasis = map_body_inline_ranges(
             emphasis_ranges, body_start, display_body_start, len(display_text)
         )
+        display_underlines = map_body_inline_ranges(
+            underline_ranges, body_start, display_body_start, len(display_text)
+        )
+        display_bolds = map_body_inline_ranges(
+            bold_ranges, body_start, display_body_start, len(display_text)
+        )
         return apply_style_rule({
             "kind": "option",
             "font": kai,
@@ -1838,6 +1844,8 @@ def paragraph_style(
             "inline_marker": True,
             "left_indent": 36,
             "wrap_width_factor": 1.0,
+            "underline_ranges": display_underlines,
+            "bold_ranges": display_bolds,
             "emphasis_ranges": display_emphasis,
         }, layout_rules, "option")
     if parenthesized_option_match:
