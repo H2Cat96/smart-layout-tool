@@ -84,6 +84,10 @@
       "question_numbered"
     ]
   },
+  "alignment": {
+    "source": "document",
+    "extend_blank_underline_to_edge": true
+  },
   "typography": {
     "min_underline_width_pt": 10,
     "forbidden_line_start": "，。！？；：、,.!?;:)]}）】》〉」』\"'％‰℃…",

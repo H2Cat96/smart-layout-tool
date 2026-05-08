@@ -61,7 +61,7 @@ STYLE_OVERRIDE_KEYS = {
 DEFAULT_CONTENT_DETECTION = {
     "section_title_patterns": [r"^【.+】$", r"^练习[一二三四五六七八九十]+$"],
     "section_title_exclude": ["【答案】", "【解析】"],
-    "lesson_title_patterns": [r"^第[一二三四五六七八九十百]+讲$"],
+    "lesson_title_patterns": [r"^第[一二三四五六七八九十百]+讲"],
     "topic_heading_patterns": [r"^[一二三四五六七八九十]+、\S+"],
     "reading_prompt_patterns": [r"^阅读.*(题|完成|回答|问题)"],
     "structural_reading_prompt_exclude_patterns": [
@@ -351,7 +351,8 @@ def normalize_answer_label(text: str, layout_rules: dict[str, Any] | None = None
 
 
 def is_answer_main_title(text: str) -> bool:
-    return bool(re.search(r"(?:参考)?答案(?:与|及)解析[:：]?$", text.strip()))
+    t = text.strip()
+    return bool(re.search(r"(?:参考)?答案(?:(?:与|及)解析)?[:：]?$", t))
 
 
 _RUBY_PINYIN_RE = re.compile(
@@ -1112,7 +1113,8 @@ def load_docx_paragraphs(docx_path: Path) -> list[Any]:
                 bold_ranges = offset_inline_ranges(bold_ranges, list_prefix_len)
                 superscript_ranges = offset_inline_ranges(superscript_ranges, list_prefix_len)
                 emphasis_ranges = offset_inline_ranges(emphasis_ranges, list_prefix_len)
-            word_align = "right" if p.alignment == 2 else None
+            _pa = p.alignment
+            word_align = "right" if _pa == 2 else ("center" if _pa == 1 else ("left" if _pa == 0 else None))
             if underline_ranges or bold_ranges or superscript_ranges or emphasis_ranges or ruby_annotations or word_align:
                 block: dict[str, Any] = {"type": "paragraph", "text": text}
                 if underline_ranges:
@@ -1191,12 +1193,49 @@ def load_docx_paragraphs(docx_path: Path) -> list[Any]:
     return infer_bare_options(normalize_bare_answer_items(merged))
 
 
-def split_practice_and_answers(paragraphs: list[Any]) -> tuple[list[Any], list[Any]]:
+def split_practice_and_answers(paragraphs: list[Any], layout_rules: dict[str, Any] | None = None) -> tuple[list[Any], list[Any]]:
     split_idx = next(
         (i for i, text in enumerate(paragraphs) if is_answer_main_title(block_text(text))),
         len(paragraphs),
     )
     return paragraphs[:split_idx], paragraphs[split_idx:]
+
+
+def split_practice_and_answers_multi(paragraphs: list[Any], layout_rules: dict[str, Any] | None = None) -> tuple[list[Any], list[Any]]:
+    """Split interleaved practice/answer sections. Handles files where
+    practice and answer blocks alternate (Practice1→Answer1→Practice2→Answer2)."""
+    topic_heading_pats = (layout_rules or {}).get("content_detection", {}).get(
+        "topic_heading_patterns",
+        DEFAULT_CONTENT_DETECTION.get("topic_heading_patterns", []),
+    )
+    reading_prompt_pats = (layout_rules or {}).get("content_detection", {}).get(
+        "reading_prompt_patterns",
+        DEFAULT_CONTENT_DETECTION.get("reading_prompt_patterns", []),
+    )
+
+    def is_practice_start(text: str) -> bool:
+        for pat in topic_heading_pats:
+            if re.match(pat, text):
+                return True
+        for pat in reading_prompt_pats:
+            if re.match(pat, text):
+                return True
+        return False
+
+    practice: list[Any] = []
+    answers: list[Any] = []
+    in_answer = False
+    for i, para in enumerate(paragraphs):
+        text = block_text(para)
+        if is_answer_main_title(text):
+            in_answer = True
+        elif in_answer and is_practice_start(text):
+            in_answer = False
+        if in_answer:
+            answers.append(para)
+        else:
+            practice.append(para)
+    return practice, answers
 
 
 def ensure_dir(path: Path) -> None:
@@ -1636,7 +1675,7 @@ def paragraph_style(
             "font": yan_bold,
             "size": 16,
             "leading": 24,
-            "align": "center",
+            "align": word_align or "center",
             "color": "#111111",
             "space_before": 3,
             "space_after": 8,
@@ -1649,14 +1688,14 @@ def paragraph_style(
         }, layout_rules, "section_title")
     if pos == 0 or is_lesson_title(text, layout_rules) or (is_answer and is_answer_main_title(text)):
         return apply_style_rule({
-            "kind": "main_title",
+            "kind": "answer_title" if is_answer and pos != 0 else "main_title",
             "font": yan_mid,
             "size": 23,
             "leading": 34,
             "align": "left",
             "color": config_color(layout_rules, "body_text", "#222222"),
-            "space_before": 0,
-            "space_after": 16,
+            "space_before": 10 if is_answer and pos != 0 else 0,
+            "space_after": 8 if is_answer and pos != 0 else 16,
             "first_line_indent": 0,
             "bar": False,
             "title_marker": True,
@@ -1694,7 +1733,7 @@ def paragraph_style(
             "font": kai,
             "size": 14,
             "leading": 20,
-            "align": "center",
+            "align": word_align or "center",
             "color": config_color(layout_rules, "author_text", "#333333"),
             "space_before": 0,
             "space_after": 5,
@@ -1707,7 +1746,7 @@ def paragraph_style(
             "font": kai,
             "size": 14,
             "leading": 24,
-            "align": "right",
+            "align": word_align or "right",
             "color": config_color(layout_rules, "body_text", "#222222"),
             "space_before": 2,
             "space_after": 0,
@@ -1738,6 +1777,7 @@ def paragraph_style(
                 display_start = min(display_start, rng[0])
         display_body = text[display_start:]
         shifted_underlines = shift_inline_ranges(underline_ranges, display_start, len(display_body))
+        shifted_emphasis = shift_inline_ranges(emphasis_ranges, display_start, len(display_body))
         return apply_style_rule({
             "kind": "question_numbered",
             "font": yan_regular,
@@ -1755,6 +1795,7 @@ def paragraph_style(
             "left_indent": 36,
             "wrap_width_factor": 1.0,
             "underline_ranges": shifted_underlines,
+            "emphasis_ranges": shifted_emphasis,
         }, layout_rules, "question_stem")
     if question_match and is_answer:
         number, body = question_match.groups()
@@ -1775,6 +1816,12 @@ def paragraph_style(
         }, layout_rules, "answer_body")
     if option_match:
         marker, body = option_match.groups()
+        body_start = option_match.start(2)
+        display_body_start = len(marker) + 2
+        display_text = f"{marker}. {body}"
+        display_emphasis = map_body_inline_ranges(
+            emphasis_ranges, body_start, display_body_start, len(display_text)
+        )
         return apply_style_rule({
             "kind": "option",
             "font": kai,
@@ -1786,11 +1833,12 @@ def paragraph_style(
             "space_after": 1,
             "first_line_indent": 0,
             "bar": False,
-            "display_text": f"{marker}. {body}",
+            "display_text": display_text,
             "marker_text": f"{marker}.",
             "inline_marker": True,
             "left_indent": 36,
             "wrap_width_factor": 1.0,
+            "emphasis_ranges": display_emphasis,
         }, layout_rules, "option")
     if parenthesized_option_match:
         marker, body = parenthesized_option_match.groups()
@@ -1802,6 +1850,9 @@ def paragraph_style(
         )
         display_bolds = map_body_inline_ranges(
             bold_ranges, body_start, display_body_start, len(display_text)
+        )
+        display_emphasis = map_body_inline_ranges(
+            emphasis_ranges, body_start, display_body_start, len(display_text)
         )
         return apply_style_rule({
             "kind": "option",
@@ -1821,6 +1872,7 @@ def paragraph_style(
             "wrap_width_factor": 1.0,
             "underline_ranges": display_underlines,
             "bold_ranges": display_bolds,
+            "emphasis_ranges": display_emphasis,
         }, layout_rules, "option")
     if not is_answer and judgement_match:
         return apply_style_rule({
@@ -1834,6 +1886,7 @@ def paragraph_style(
             "space_after": 1,
             "first_line_indent": 0,
             "bar": False,
+            "emphasis_ranges": emphasis_ranges,
         }, layout_rules, "judgement_item")
     if matches_any(detection["source_patterns"], text):
         return apply_style_rule({
@@ -1854,7 +1907,7 @@ def paragraph_style(
             "font": yan_mid,
             "size": 14,
             "leading": 24,
-            "align": "center",
+            "align": word_align or "center",
             "color": config_color(layout_rules, "body_text", "#222222"),
             "space_before": 0,
             "space_after": 4,
@@ -1866,7 +1919,7 @@ def paragraph_style(
         return style
     if not is_answer and force_poem_line:
         if is_candidate_poem_line(text, layout_rules):
-            style = _poem_line_style(kai, layout_rules)
+            style = _poem_line_style(kai, layout_rules, word_align)
             if superscript_ranges:
                 style["superscript_ranges"] = superscript_ranges
             return style
@@ -1877,14 +1930,17 @@ def paragraph_style(
                 "font": kai,
                 "size": 13,
                 "leading": 24,
-                "align": "center",
+                "align": word_align or "center",
                 "color": config_color(layout_rules, "body_text", "#222222"),
                 "space_before": 0,
                 "space_after": 6,
                 "first_line_indent": 0,
                 "bar": False,
             }, layout_rules, "author")
-    _align = "right" if word_align == "right" else ("left" if is_answer else "justify")
+    if word_align:
+        _align = word_align
+    else:
+        _align = "left" if is_answer else "justify"
     style = apply_style_rule({
         "kind": "answer_body" if is_answer else "body",
         "font": kai,
@@ -1894,7 +1950,7 @@ def paragraph_style(
         "color": config_color(layout_rules, "body_text", "#222222"),
         "space_before": 1,
         "space_after": 3 if is_answer else 2,
-        "first_line_indent": 0 if word_align == "right" else (18 if re.match(r"^[①-⑳㉑-㉟]", text) else (0 if is_answer else 28)),
+        "first_line_indent": 0 if word_align in ("right", "center") else (18 if re.match(r"^[①-⑳㉑-㉟]", text) else (0 if is_answer else 28)),
         "underline_ranges": underline_ranges,
         "bold_ranges": bold_ranges,
         "superscript_ranges": superscript_ranges,
@@ -1905,13 +1961,13 @@ def paragraph_style(
     return style
 
 
-def _poem_line_style(kai: str, layout_rules: dict[str, Any]) -> dict[str, Any]:
+def _poem_line_style(kai: str, layout_rules: dict[str, Any], word_align: str | None = None) -> dict[str, Any]:
     return apply_style_rule({
         "kind": "poem_line",
         "font": kai,
         "size": 14,
         "leading": 28,
-        "align": "center",
+        "align": word_align or "center",
         "color": config_color(layout_rules, "body_text", "#222222"),
         "space_before": 0,
         "space_after": 2,
@@ -2394,7 +2450,7 @@ def draw_paragraph_lines(
             extra = max(0, (available_w - line_width) / (len(line) - 1))
             if extra > style["size"] * 0.7:
                 char_positions = draw_line_with_format(c, line, text_offset, tx, c._pagesize[1] - cursor, style)
-                draw_underlines_for_line(c, line, text_offset, tx, cursor, style, color_mode)
+                draw_underlines_for_line(c, line, text_offset, tx, cursor, style, color_mode, x + w - 8)
                 draw_ruby_for_line(c, line, text_offset, cursor, style, color_mode, char_positions)
                 draw_emphasis_dots_for_line(c, line, text_offset, cursor, style, color_mode, char_positions)
                 text_offset += len(line)
@@ -2424,7 +2480,7 @@ def draw_paragraph_lines(
                 char_positions.append(cx)
         else:
             char_positions = draw_line_with_format(c, line, text_offset, tx, c._pagesize[1] - cursor, style)
-        draw_underlines_for_line(c, line, text_offset, tx, cursor, style, color_mode)
+        draw_underlines_for_line(c, line, text_offset, tx, cursor, style, color_mode, x + w - 8)
         draw_ruby_for_line(c, line, text_offset, cursor, style, color_mode, char_positions)
         draw_emphasis_dots_for_line(c, line, text_offset, cursor, style, color_mode, char_positions)
         text_offset += len(line)
@@ -2442,6 +2498,7 @@ def draw_underlines_for_line(
     cursor: float,
     style: dict[str, Any],
     color_mode: str = "rgb",
+    right_edge: float = 0,
 ) -> None:
     ranges = style.get("underline_ranges") or []
     if not ranges or not line:
@@ -2464,6 +2521,8 @@ def draw_underlines_for_line(
             x2 = x1 + text_width(" " * (overlap_end - overlap_start), style["font"], style["size"])
         else:
             x2 = x1 + text_width(segment, style["font"], style["size"])
+        if n_spaces is not None and right_edge > 0 and overlap_end == line_end:
+            x2 = right_edge
         if x2 - x1 < _MIN_UNDERLINE_WIDTH_PT:
             continue
         c.line(x1, y, x2, y)
@@ -2966,7 +3025,10 @@ def render_flow(
         page_started_at = paragraph_idx
         remainder_started_at = remainder
         used_sides: set[str] = set()
+        _force_new_spread = False
         for frame_ref in frame_list:
+            if _force_new_spread:
+                break
             frame = frame_ref["bbox_pt"]
             side = frame_side(frame, page_w)
             cursor = frame["y"] + 8
@@ -3095,6 +3157,14 @@ def render_flow(
                         style = apply_hanging_context_indent(style, inherited_hanging_indent, layout_rules)
                 if starts_hanging_context(style, layout_rules):
                     inherited_hanging_indent = style.get("left_indent", question_content_indent(layout_rules))
+                if (
+                    not is_answer
+                    and style.get("kind") == "main_title"
+                    and paragraph_idx > page_started_at
+                    and remainder is None
+                ):
+                    _force_new_spread = True
+                    break
                 lines, rest = fit_lines(text, style, frame, cursor)
                 if (
                     remainder is None
@@ -3335,18 +3405,41 @@ def build_pdf(args: argparse.Namespace) -> dict[str, Any]:
     background_records = ensure_backgrounds(template, background_dir, spread_page_w, page_h, args.background_dpi, template_dir=PACKAGE_ROOT)
     prompts_path = write_background_prompt_manifest(output_dir, template)
 
-    paragraphs = load_docx_paragraphs(docx_path)
+    docx_dir = getattr(args, "docx_dir", None)
+    if docx_dir:
+        def _natural_key(p: Path) -> list:
+            return [int(s) if s.isdigit() else s for s in re.split(r"(\d+)", p.name)]
+        docx_files = sorted(Path(docx_dir).glob("*.docx"), key=_natural_key)
+        all_practice: list[Any] = []
+        all_answers: list[Any] = []
+        for df in docx_files:
+            paras = load_docx_paragraphs(df)
+            p, a = split_practice_and_answers_multi(paras, layout_rules)
+            all_practice.extend(p)
+            if a:
+                first_a_text = block_text(a[0])
+                first_p_text = block_text(p[0]) if p else ""
+                lesson_prefix = re.match(r"^第[一二三四五六七八九十百]+讲", first_p_text)
+                if is_answer_main_title(first_a_text) and lesson_prefix and lesson_prefix.group() not in first_a_text:
+                    a[0] = f"{lesson_prefix.group()} 参考答案与解析"
+                elif not is_answer_main_title(first_a_text):
+                    title = f"{lesson_prefix.group()} 参考答案与解析" if lesson_prefix else "参考答案与解析"
+                    a.insert(0, title)
+                all_answers.extend(a)
+        practice, answers = all_practice, all_answers
+    else:
+        paragraphs = load_docx_paragraphs(docx_path)
 
-    overrides_path = Path(docx_path).parent / "overrides.json"
-    if overrides_path.exists():
-        import json as _json
-        _overrides = _json.loads(overrides_path.read_text("utf-8"))
-        for idx_str, scale in _overrides.get("image_scales", {}).items():
-            idx = int(idx_str)
-            if idx < len(paragraphs) and is_image_block(paragraphs[idx]):
-                paragraphs[idx]["scale"] = scale
+        overrides_path = Path(docx_path).parent / "overrides.json"
+        if overrides_path.exists():
+            import json as _json
+            _overrides = _json.loads(overrides_path.read_text("utf-8"))
+            for idx_str, scale in _overrides.get("image_scales", {}).items():
+                idx = int(idx_str)
+                if idx < len(paragraphs) and is_image_block(paragraphs[idx]):
+                    paragraphs[idx]["scale"] = scale
 
-    practice, answers = split_practice_and_answers(paragraphs)
+        practice, answers = split_practice_and_answers(paragraphs)
 
     pdf_path = output_dir / args.pdf_name
     spread_pdf_path = output_dir / f".{pdf_path.stem}.spread-work.pdf" if page_mode == "single" else pdf_path
@@ -3453,6 +3546,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--template", default=str(DEFAULT_TEMPLATE))
     parser.add_argument("--font-map", default=str(DEFAULT_FONT_MAP))
     parser.add_argument("--docx", default=str(DEFAULT_DOCX))
+    parser.add_argument("--docx-dir", default=None, help="Directory of docx files to merge into one PDF (answers collected at end)")
     parser.add_argument("--output-dir", default=str(DEFAULT_OUTPUT_DIR))
     parser.add_argument("--background-dir", default=None)
     parser.add_argument("--background-mode", choices=["white", "image"], default="white")

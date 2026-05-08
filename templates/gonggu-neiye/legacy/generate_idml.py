@@ -1265,7 +1265,7 @@ def generate_idml(docx_path: str, output_path: str, layout_rules_path: str | Non
 
     # Parse Word document
     paragraphs = load_docx_paragraphs(docx_path)
-    practice_blocks, answer_blocks = split_practice_and_answers(paragraphs)
+    practice_blocks, answer_blocks = split_practice_and_answers(paragraphs, layout_rules)
 
     print(f"Practice blocks: {len(practice_blocks)}")
     print(f"Answer blocks: {len(answer_blocks)}")
