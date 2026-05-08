@@ -10,6 +10,24 @@ argument-hint: [docx文件路径]
 
 ## 流程
 
+### 0. 环境检查
+
+先确认项目目录位置。用 `!`find / -type d -name "teaching-layout-cli" 2>/dev/null | head -5` 找到项目根目录，后续命令都基于该路径。
+
+然后静默检查 Python 依赖是否就绪：
+
+```bash
+python3 -c "import reportlab, docx, lxml, numpy" 2>&1
+```
+
+如果报 ModuleNotFoundError，自动安装：
+
+```bash
+pip3 install -r <项目根目录>/requirements.txt
+```
+
+安装完成后告知用户"环境已就绪"，失败则展示错误信息并协助排查。
+
 ### 1. 确定 Word 文档
 
 如果 `$ARGUMENTS` 有值，直接作为 docx 路径。否则帮用户找到文件：
@@ -28,16 +46,16 @@ find ~/Desktop ~/Downloads -name "*.docx" -maxdepth 2 -mtime -30 2>/dev/null | h
 
 ### 3. 执行
 
-工作目录：`/Users/tal/Desktop/teaching-layout-cli`
+工作目录为本项目根目录（包含 `templates/` 的那个目录）。
 
 PDF：
 ```bash
-cd /Users/tal/Desktop/teaching-layout-cli && python3 templates/gonggu-neiye/legacy/generate_print_pdf.py --docx "$DOCX" --output "$OUTPUT_DIR"
+cd <项目根目录> && python3 templates/gonggu-neiye/legacy/generate_print_pdf.py --docx "$DOCX" --output "$OUTPUT_DIR"
 ```
 
 IDML：
 ```bash
-cd /Users/tal/Desktop/teaching-layout-cli && python3 templates/gonggu-neiye/legacy/generate_idml.py --docx "$DOCX" --output "$OUTPUT_DIR"
+cd <项目根目录> && python3 templates/gonggu-neiye/legacy/generate_idml.py --docx "$DOCX" --output "$OUTPUT_DIR"
 ```
 
 输出目录默认放在 docx 同级目录，以文件名命名。
@@ -49,9 +67,7 @@ cd /Users/tal/Desktop/teaching-layout-cli && python3 templates/gonggu-neiye/lega
 - `Links/` 里的图片需要重新链接
 - `Document Fonts/` 是排版用字体
 
-## 依赖
+## 注意事项
 
-如果报 ModuleNotFoundError，执行：
-```bash
-pip3 install reportlab python-docx lxml numpy
-```
+- 如果用户的 docx 文件路径包含空格，务必用引号包裹
+- 当前模板仅支持"巩固内页"（gonggu-neiye）

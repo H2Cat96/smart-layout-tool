@@ -3406,7 +3406,6 @@ def build_pdf(args: argparse.Namespace) -> dict[str, Any]:
         )
         spread_pdf_path.unlink(missing_ok=True)
 
-    render_preview(pdf_path, preview_path)
     pdf_validation = validate_pdf(pdf_path, output_page_w, page_h)
 
     manifest = {
