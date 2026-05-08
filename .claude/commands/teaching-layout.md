@@ -1,10 +1,10 @@
 ---
-description: 排版生成工具——从 Word 生成 PDF 或 IDML
+description: 智能排版工具——从 Word 生成 PDF 或 IDML
 allowed-tools: Bash, Read, AskUserQuestion
 argument-hint: [docx文件路径]
 ---
 
-# 排版生成
+# 智能排版工具
 
 引导用户完成从 Word 文档到排版成品的全流程。用户不熟悉终端，用自然语言交流即可。
 

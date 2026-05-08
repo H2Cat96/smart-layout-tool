@@ -1,6 +1,6 @@
-# Quickstart
+# 智能排版工具 · 快速开始
 
-这是一份可分享的本地教辅排版 CLI。当前内置模板是 `人文-课后巩固`，内部目录为 `templates/gonggu-neiye`。
+当前内置模板是 `人文-课后巩固`，内部目录为 `templates/gonggu-neiye`。
 
 ## 1. 安装依赖
 
