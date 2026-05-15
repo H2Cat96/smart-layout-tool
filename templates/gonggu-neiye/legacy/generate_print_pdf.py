@@ -1686,9 +1686,24 @@ def paragraph_style(
             else config_color(layout_rules, "practice_bar", "#fce5e4"),
             "display_text": section_display_text(text),
         }, layout_rules, "section_title")
+    answer_label_text = normalize_answer_label(text, layout_rules) if is_answer else None
+    if answer_label_text:
+        return apply_style_rule({
+            "kind": "answer_label",
+            "font": yan_mid,
+            "size": 14,
+            "leading": 23,
+            "align": "left",
+            "color": "#111111",
+            "space_before": 5,
+            "space_after": 2,
+            "first_line_indent": 0,
+            "bar": False,
+            "display_text": answer_label_text,
+        }, layout_rules, "answer_label")
     if pos == 0 or is_lesson_title(text, layout_rules) or (is_answer and is_answer_main_title(text)):
         return apply_style_rule({
-            "kind": "answer_title" if is_answer and pos != 0 else "main_title",
+            "kind": "main_title",
             "font": yan_mid,
             "size": 23,
             "leading": 34,
@@ -1753,21 +1768,6 @@ def paragraph_style(
             "first_line_indent": 0,
             "bar": False,
         }, layout_rules, "letter_closing")
-    answer_label_text = normalize_answer_label(text, layout_rules) if is_answer else None
-    if answer_label_text:
-        return apply_style_rule({
-            "kind": "answer_label",
-            "font": yan_mid,
-            "size": 14,
-            "leading": 23,
-            "align": "left",
-            "color": "#111111",
-            "space_before": 5,
-            "space_after": 2,
-            "first_line_indent": 0,
-            "bar": False,
-            "display_text": answer_label_text,
-        }, layout_rules, "answer_label")
     if question_match and not is_answer:
         number, body = question_match.groups()
         body_start = question_match.start(2)
